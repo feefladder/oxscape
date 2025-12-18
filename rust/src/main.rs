@@ -109,7 +109,7 @@ impl FastScapeRBPF {
     const NO_FLOW: i32 = -1;
     const DR: [f64; 8] = [1.0, SQRT_2, 1.0, SQRT_2, 1.0, SQRT_2, 1.0, SQRT_2];
 
-    fn generate_random_terrain(mut self) -> Self {
+    pub fn generate_random_terrain(mut self) -> Self {
         for y in 0..self.height {
             for x in 0..self.width {
                 let c = y * self.width + x;
@@ -133,7 +133,7 @@ impl FastScapeRBPF {
         self
     }
 
-    fn generate_boring_terrain(mut self, mut start: f64, delta: f64) -> Self {
+    pub fn generate_boring_terrain(mut self, mut start: f64, delta: f64) -> Self {
         for y in 2..self.height-2 {
         for x in 2..self.width-2 {
             let c = y*self.width+x;
@@ -149,7 +149,7 @@ impl FastScapeRBPF {
         let h = vec![0.0; size];
         let iwidth = width as isize;
         let ncpu = available_parallelism().unwrap().get();
-        let stack_width = 3.max(5 * size / ncpu);
+        let stack_width = 3.max(5 * size / ncpu).min(size);
         let level_width = 1.max(size / ncpu);
 
         Self {
@@ -212,28 +212,17 @@ impl FastScapeRBPF {
     }
 
     fn compute_donors(&mut self) {
-        self.donor
-            // donors is 8* cells (for a maximum of 8 donor cells)
-            .par_chunks_exact_mut(self.width * 8)
-            .enumerate()
-            .zip(self.ndon.par_chunks_exact_mut(self.width))
-            .skip(1)
-            .take(self.height - 2)
-            .for_each(|((y, don), ndon)| {
-                for x in 1..self.width - 1 {
-                    let c = y * self.width + x;
-                    for ni in 0..8 {
-                        let n = (c as isize + self.nshift[ni]) as usize;
-                        if self.rec[n] != Self::NO_FLOW
-                            && n as isize + self.nshift[self.rec[n] as usize] == c as isize
-                        {
-                            // don is array of 8*cells
-                            don[8 * x + ndon[x]] = n;
-                            ndon[x] += 1;
-                        }
-                    }
-                }
-            });
+        self.ndon.fill(0);
+        for c in 0..self.size {
+            if self.rec[c] == Self::NO_FLOW {
+                continue;
+            }
+            //If this cell passes flow to a downhill cell, make a note of it in that
+            //downhill cell's donor array and increment its donor counter
+            let n = (c as isize +self.nshift[self.rec[c] as usize]) as usize;
+            self.donor[8*n+self.ndon[n]] = c;
+            self.ndon[n] +=1;
+        }
     }
 
     ///Cells must be ordered so that they can be traversed such that higher cells
@@ -261,14 +250,10 @@ impl FastScapeRBPF {
         self.nlevels += 1;
 
         let mut level_bottom = 0; // first cell of current level
-        let mut level_top = 1;    // last cell of current level
+        let mut level_top = nstack;    // last cell of current level
 
         // full BFS search, but we fill an array, so later it can be done in parallel
         while level_bottom < level_top {
-            level_bottom = level_top;   // start at the previous level
-            level_top = nstack;         // and process all cells that were added
-            println!("bot: {level_bottom}; top: {level_top}");
-            println!("stack: {:?}", &self.stack[level_bottom..level_top]);
             for si in level_bottom..level_top {
                 let c = self.stack[si];
                 // load donating cells of focal cell into the stack
@@ -278,6 +263,9 @@ impl FastScapeRBPF {
                     nstack += 1;
                 }
             }
+            level_bottom = level_top;   // start at the previous level
+            level_top = nstack;         // and process all cells that were added
+
             self.levels[self.nlevels] = nstack;
             self.nlevels += 1;
         }
@@ -348,7 +336,7 @@ impl FastScapeRBPF {
         }
     }
 
-    fn run(&mut self, nstep: usize) {
+    pub fn run(&mut self, nstep: usize) {
         self.stack_width = self.size;
         self.level_width = self.size;
 
@@ -368,9 +356,9 @@ impl FastScapeRBPF {
             self.add_uplift();
             self.erode();
 
-            // if step%20 == 0 {
+            if step%20 == 0 {
                 println!("step {step}.");
-            // }
+            }
         }
     }
 }
@@ -526,17 +514,14 @@ mod test {
                   32, 37, 42, 47, 52, 57, 62, 67, 72, 77,
                   73, 74, 75, 76, 33, 34, 35, 36, 43, 44,
                   45, 46, 53, 54, 55, 56, 63, 64, 65, 66,
-                   0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-                   0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-                   0,  0,  0,  0,  0
             ]
         );
-        assert_eq!(model.nlevels, 8);
+        assert_eq!(model.nlevels, 7);
         assert_eq!(
             model.levels,
             vec![
             //   0  1  2  3  4  5  6   7   8   9
-            /*0*/0,64,84,88,92,96,100,100,100,  0,
+            /*0*/0,64,84,88,92,96,100,100,  0,  0,
             /*1*/0, 0, 0, 0, 0, 0,  0,  0,  0,  0,
             /*2*/0, 0, 0, 0, 0, 0,  0,  0,  0,  0,
             /*3*/0, 0, 0, 0, 0, 0,  0,  0,  0,  0,
@@ -610,7 +595,7 @@ mod test {
     #[test]
     fn test_run() {
         let mut model = FastScapeRBPF::new(10, 10).generate_boring_terrain(0.5,0.5);
-        model.run(3);
+        model.run(1);
         assert_eq!(model.h, vec![
         //   0    1    2    3    4    5    6    7    8    9
             0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -623,6 +608,20 @@ mod test {
             0.0, 0.0, 16.92695630148848, 17.394839143291662, 17.8619047206506, 18.328157301286385, 18.79360111590655, 19.258240356725203, 0.0, 0.0,
             0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
             0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ]);
+        model.run(2);
+        assert_eq!(model.h, vec![
+        //   0    1    2    3    4    5    6    7    8    9
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 6.366976330982888, 6.469075034386358, 6.8754847584176595, 7.27470060809636, 7.666973309701912, 8.705373365059101, 0.0, 0.0,
+            0.0, 0.0, 9.165239369585679, 9.818352168414016, 10.312022710519171, 10.804971520586065, 11.29718342674234, 11.427060670960504, 0.0, 0.0,
+            0.0, 0.0, 11.87211189857408, 12.867451106960154, 13.3671742495032, 13.866863470191484, 14.36651803038882, 14.062215460338523, 0.0, 0.0,
+            0.0, 0.0, 14.493376998520368, 15.904439748517552, 16.404431584077887, 16.9044223827622, 17.404412125176933, 16.616173336198493, 0.0, 0.0,
+            0.0, 0.0, 17.034286373879, 18.94502323937346, 19.445023106709886, 19.945022956769332, 20.445022789268517, 19.093791900047925, 0.0, 0.0,
+            0.0, 0.0, 19.49962358131455, 19.9034782376357, 20.305375055555377, 20.70533294401423, 21.103370545546145, 21.4995062288133, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         ]);
     }
 }

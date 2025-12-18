@@ -26,6 +26,7 @@ target_link_libraries(
     PRIVATE
     build_info
     GTest::gtest_main
+    GTest::gmock
     OpenMP::OpenMP_CXX
 )
 # add the top-level directory to be able to include headers
