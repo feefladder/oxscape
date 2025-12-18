@@ -77,3 +77,15 @@ Run
     ./tests/tests.sh
 
 To run all tests.
+
+Explanation
+-----------
+
+For testing, I have developed the following implementations:  
+- B&W: The B&W serial algorithm described by [5] adapted from code provided by Braun.
+- B&W+P: The B&W algorithm with only erosion parallelized.
+- B&W+PI: The B&W algorithm parallelized using the additional techniques described here, but still using the stack structure.
+- RB: A serial version of the new algorithm.  • RB+P: The new algorithm with only erosion parallelized, for comparison against B&W+P.
+- RB+PI: The new algorithm using all the parallel techniques described here.
+- RB+PQ: The new algorithm using all the parallel techniques described here separated by threads.
+- RB+GPU: The new algorithm using all the parallel techniques described here implemented for use on a GPU.

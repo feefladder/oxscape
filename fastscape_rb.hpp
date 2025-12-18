@@ -1,3 +1,4 @@
+#pragma once 
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -44,7 +45,7 @@ void PrintDEM(
 ///The entire model is contained in a handy class, which makes it easy to set up
 ///and solve many such models.
 class FastScape_RB {
- private:
+ public:
   //Value used to indicate that a cell had no downhill neighbour and, thus, does
   //not flow anywhere.
   const int    NO_FLOW = -1;
@@ -62,10 +63,10 @@ class FastScape_RB {
   const double dt        = 1000.;  //Timestep interval
   const double dr[8]     = {1,SQRT2,1,SQRT2,1,SQRT2,1,SQRT2}; //Distance between adjacent cell centers on a rectangular grid arbitrarily scale to cell edge lengths of 1
   const double tol       = 1e-3;   //Tolerance for Newton-Rhapson convergence while solving implicit Euler
-  const double cell_area = 40000;  //Area of a single cell
+  const double cell_area = 1.0;  //Area of a single cell
 
 
- private:
+ public:
   int width;        //Width of DEM
   int height;       //Height of DEM
   int size;         //Size of DEM (width*height)
@@ -107,7 +108,7 @@ class FastScape_RB {
   CumulativeTimer Tmr_Overall;
 
 
- private:
+ public:
   void GenerateRandomTerrain(){
     //srand(std::random_device()());
     for(int y=0;y<height;y++)
@@ -129,8 +130,29 @@ class FastScape_RB {
     }
   }
 
+  void GenerateBoringTerrain(double start, const double delta) {
+    for (int x=0;x<width;x++) {
+      h[x] = 0;
+      h[x+width] = 0;
+      h[x+width*(height-2)] = 0;
+      h[x+width*(height-1)] = 0;
+    }
+    for (int y = 0;y<height;y++) {
+      h[y*width]=0;
+      h[y*width+1]=0;
+      h[y*width+width-2]=0;
+      h[y*width+width-1]=0;
+    }
+    
+    for (int y=2;y<height-2;y++) {
+      for (int x=2;x<width-2;x++) {
+        const int c = y*width+x;
+        h[c] = start;
+        start+=delta;
+      }
+    }
+  }
 
- public:
   ///Initializing code
   FastScape_RB(const int width0, const int height0)
     //Initialize code for finding neighbours of a cell
@@ -144,7 +166,7 @@ class FastScape_RB {
 
     h.resize(size);   //Memory for terrain height
 
-    GenerateRandomTerrain();     //Could replace this with custom initializer
+    // GenerateRandomTerrain();     //Could replace this with custom initializer
 
     Tmr_Step1_Initialize.stop();
     Tmr_Overall.stop();
@@ -152,7 +174,7 @@ class FastScape_RB {
 
 
 
- private:
+ public:
   ///The receiver of a focal cell is the cell which receives the focal cells'
   ///flow. Here, we model the receiving cell as being the one connected to the
   ///focal cell by the steppest gradient. If there is no local gradient, than
@@ -404,46 +426,3 @@ class FastScape_RB {
     return h;
   }
 };
-
-
-
-
-
-
-
-int main(int argc, char **argv){
-  //Enable this to stop the program if a floating-point exception happens
-  //feenableexcept(FE_ALL_EXCEPT);
-
-  if(argc!=5){
-    std::cerr<<"Syntax: "<<argv[0]<<" <Dimension> <Steps> <Output Name> <Seed>"<<std::endl;
-    return -1;
-  }
-
-  const int         width       = std::stoi (argv[1]);
-  const int         height      = std::stoi (argv[1]);
-  const int         nstep       = std::stoi (argv[2]);
-  const std::string output_name =            argv[3] ;
-  const auto        rand_seed   = std::stoul(argv[4]);
-
-  seed_rand(rand_seed);
-
-  //Uses the RichDEM machine-readable line prefixes
-  //Name of algorithm
-  std::cout<<"A FastScape RB"<<std::endl;
-  //Citation for algorithm
-  std::cout<<"C Richard Barnes TODO"<<std::endl;
-  //Git hash of code used to produce outputs of algorithm
-  std::cout<<"h git_hash    = "<<GIT_HASH<<std::endl;
-  //Random seed used to produce outputs
-  std::cout<<"m Random seed = "<<rand_seed<<std::endl;
-
-  CumulativeTimer tmr(true);
-  FastScape_RB tm(width,height);
-  tm.run(nstep);
-  std::cout<<"t Total calculation time    = "<<std::setw(15)<<tmr.elapsed()<<" microseconds"<<std::endl;
-
-  PrintDEM(output_name, tm.getH(), width, height);
-
-  return 0;
-}
