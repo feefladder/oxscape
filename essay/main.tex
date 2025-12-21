@@ -1,0 +1,89 @@
+\documentclass[a4paper]{article} % Uses the book template for quick start, but scrbook may be better because it is more flexible
+% \usepackage[T1]{fontenc} % Include italic fonts
+\usepackage[margin=1.5cm, bottom=2cm]{geometry} % Page margins
+\usepackage{lettrine}
+\usepackage{csquotes}
+\usepackage{orcidlink}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{svg}
+\usepackage{subcaption}
+\usepackage{ccicons}
+\usepackage[final]{pdfpages}
+\usepackage[inline]{enumitem}
+
+\usepackage{setspace}
+\onehalfspacing    % makes the whole document 1.5 spaced
+\usepackage{lineno}     % for line numbers
+
+\usepackage[backend=biber, style=numeric]{biblatex}
+\addbibresource{../latex/library.bib}
+\addbibresource{erosion.bib}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true}
+
+
+
+\title{Towards stability in erosion models: developing rooted systems in C++ or Rust}
+\author{Fee Gevaert \orcidlink{https://orcid.org/0009-0008-2311-6336} \today{}}
+
+\begin{document}
+\begin{abstract}
+    This essay is aimed to be a guide for people looking to make erosion models.
+    In this essay, erosion models, specifically LISEM/OpenLisem are viewed from
+    the lens of erosion and erosion control systems. Similar to hillslopes
+    affected by erosion, erosion control in the digital domain is complex and
+    there are multiple avenues that depend on the local morphology. Unit Tests
+    are conceptualized as epistemological roots of an erosion model, ensuring
+    soil stability. 
+\end{abstract}
+
+\setlist[enumerate]{noitemsep}
+\setlist[itemize]{noitemsep}
+\linenumbers
+
+\maketitle
+
+\tableofcontents
+
+
+
+\section{Introduction}
+
+This essay evolved as a result of trying to run LISEM/OpenLisem on a Linux
+system.  Since the recommended manager, MSYS is not available for linux,
+dependencies had to be manually collected. The compilation process stranded for
+OpenLisem because it depended on a specific commit in a specific branch of QWT
+and LISEM similarly depended on a multitude of other softwares. Even though no
+successful compilation of either OpenLisem or LISEM was achieved due to their
+complexity, I will make some comments with regards to how compilation could have
+been easier in section \ref{subs:deps}.
+
+Apart from these comments, I will also propose a workflow for developing erosion
+models that should increase maintainability, portability and verifiability of
+new or existing codebases. To reify this workflow, I adopted it to port a sample
+program \cite{barnesAcceleratingFluvialIncision2019} to Rust. Code is available
+on codeberg and github.
+
+\begin{enumerate}
+    \item Make the algorithm work
+    \item Test it on a small (2x2 to 10x10) grid, make those unit tests
+    \item verify the tests by hand
+    \item Mark this implementation on a separate git branch
+    \item Make it run fast, keeping the same tests
+\end{enumerate}
+
+\begin{figure}
+    \includesvg[width=\textwidth]{img/catchment_blocks.svg}
+    \caption{OpenLisem and its dependencies as a catchment. Possible downstream
+    implementations are currently disconnected.}\label{fig:catchment}
+\end{figure}
+
+\subsection{Dependency management with Git}\label{subs:deps}
+
+
+
+\printbibliography
+
+\appendix
+\end{document}

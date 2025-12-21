@@ -30,7 +30,7 @@ int main(int argc, char **argv){
 
   CumulativeTimer tmr(true);
   FastScape_RB tm(width,height);
-  tm.GenerateRandomTerrain();
+  tm.GenerateBoringTerrain(0,1./64.0);
   tm.run(nstep);
   std::cout<<"t Total calculation time    = "<<std::setw(15)<<tmr.elapsed()<<" microseconds"<<std::endl;
 

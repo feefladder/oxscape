@@ -2,7 +2,7 @@ use anyhow::Error;
 use std::env;
 use std::f64::consts::SQRT_2;
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::vec::Vec;
 
 pub const GIT_HASH: &str = env!("GIT_HASH");
@@ -12,19 +12,22 @@ pub const GIT_HASH: &str = env!("GIT_HASH");
 ///Production code for experimentation should probably use GeoTIFF or a similar
 ///format as it will have a smaller file size and, thus, save quicker.
 pub fn print_dem(filename: &str, h: &[f64], width: &usize, height: &usize) -> std::io::Result<()> {
-    let mut f = File::create(filename)?;
-    writeln!(&mut f, "ncols {}", width - 2)?;
-    writeln!(&mut f, "nrows {}", height - 2)?;
-    writeln!(&mut f, "xllcorner 637500.000")?;
-    writeln!(&mut f, "yllcorner 206000.000")?;
-    writeln!(&mut f, "NODATA_value -9999")?;
+    let f = File::create(filename)?;
+    let mut w = BufWriter::new(f);
+    let mut buf = ryu::Buffer::new();
+    writeln!(&mut w, "ncols {}", width - 2)?;
+    writeln!(&mut w, "nrows {}", height - 2)?;
+    writeln!(&mut w, "xllcorner 637500.000")?;
+    writeln!(&mut w, "yllcorner 206000.000")?;
+    writeln!(&mut w, "NODATA_value -9999")?;
     for y in 1..height - 1 {
         for x in 1..width - 1 {
-            write!(&mut f, "{} ", h[y * width + x])?;
+            w.write_all(buf.format(h[y * width + x]).as_bytes())?;
+            w.write_all(b" ")?;
         }
-        writeln!(&mut f, "")?;
+        w.write_all(b"\n")?;
     }
-    Ok(())
+    w.flush()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -90,11 +93,6 @@ impl GridMeta {
 
     pub fn size(&self) -> usize {
         self.size
-    }
-
-    /// create a properly-sized array of type `T`
-    fn arr<T>(&self) -> Vec<T> {
-        Vec::with_capacity(self.size)
     }
 }
 
@@ -237,42 +235,6 @@ pub fn generate_order(
     *nlevels -= 1;
 }
 
-#[derive(Debug, Default, PartialEq)]
-pub struct FastScapeRBPF {
-    params: Params,
-    h: Vec<f64>,
-    accum: Vec<f64>,
-    ///Direction of receiving cell
-    ///
-    /// ```
-    /// # let x = 4;
-    /// # let iwidth = 3;
-    /// # let nshift: [isize;8] = [-1,-iwidth - 1,-iwidth,-iwidth + 1,1,iwidth + 1,iwidth,iwidth - 1,];
-    /// let arr = [
-    /// 1,2,3,
-    /// 0,x,4,
-    /// 7,6,5,
-    /// ];
-    /// for n in 0..8 {
-    ///   assert!(arr[(4+nshift[n]) as usize] == n)
-    /// }
-    /// ```
-    rec: Vec<i32>,
-    /// indices of donor cells. is 8 times as large
-    donor: Vec<usize>,
-    /// number of donor cells
-    ndon: Vec<usize>,
-    /// stack/queue
-    stack: Vec<usize>,
-
-    levels: Vec<usize>,
-    nlevels: usize,
-    ///number of cells allowed in the stack (queue)
-    stack_width: usize,
-    ///Number of cells allowed in a level
-    level_width: usize,
-}
-
 pub fn add_uplift(meta: &GridMeta, params: &Params, h: &mut [f64]) {
     for y in 2..meta.height - 2 {
         for x in 2..meta.width - 2 {
@@ -295,7 +257,6 @@ pub fn erode(
     for li in 1..nlevels - 1 {
         let lvlstart = levels[li];
         let lvlend = levels[li + 1];
-        let lvlsize = lvlend - lvlstart;
         for si in lvlstart..lvlend {
             let c = stack[si];
             if rec[c] == NO_FLOW {
@@ -326,15 +287,14 @@ pub fn erode(
 pub fn run(nstep: usize, meta: &GridMeta, params: &Params, h: &mut [f64]) {
     let mut accum = vec![0.0; meta.size];
     let mut rec = vec![NO_FLOW; meta.size];
-    let mut ndon = vec![0, meta.size];
+    let mut ndon = vec![0; meta.size];
     let mut donor = vec![0; 8 * meta.size];
     let mut stack = vec![0; meta.size];
     let mut levels = vec![0; 2 * meta.width + 2 * meta.height];
     let mut nlevels = 0;
 
     for step in 0..nstep {
-        println!("step {step}");
-        compute_receivers(meta, &h, &mut rec);
+        compute_receivers(meta, h, &mut rec);
         compute_donors(meta, &rec, &mut ndon, &mut donor);
         generate_order(
             meta,
@@ -355,7 +315,7 @@ pub fn run(nstep: usize, meta: &GridMeta, params: &Params, h: &mut [f64]) {
     }
 }
 
-fn main() -> Result<(), Error> {
+pub fn main() -> Result<(), Error> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 5 {
@@ -369,9 +329,9 @@ fn main() -> Result<(), Error> {
         ));
     }
 
-    let width = usize::from_str_radix(&args[1], 10)?;
-    let height = usize::from_str_radix(&args[1], 10)?;
-    let nstep = usize::from_str_radix(&args[2], 10)?;
+    let width = args[1].parse()?;
+    let height = width;
+    let nstep = args[2].parse()?;
     let out_name = &args[3];
     // let rand_seed = u64::from_str_radix(&args[4], 10)?;
 
@@ -381,11 +341,16 @@ fn main() -> Result<(), Error> {
     // println!("m Random seed = {rand_seed}");
     let m = GridMeta::new(width, height);
     let mut h = vec![0.0; m.size];
+    generate_boring_terrain(&m, 0.0, 1.0/64.0, &mut h);
     run(nstep, &m, &Params::default(), &mut h);
 
     print_dem(&out_name, &h, &width, &height)?;
+    // let f = File::create(out_name)?;
+    
+    // let mut e = tiff::encoder::TiffEncoder::new(f)?;
+    // e.write_image::<tiff::encoder::colortype::Gray64Float>(width as _, height as _, &h)?;
     Ok(())
-}
+}   
 
 #[cfg(test)]
 mod test {
@@ -593,6 +558,7 @@ mod test {
     }
 
     #[test]
+    #[rustfmt::skip]
     fn test_run() {
         let mut h = H_INIT.to_vec();
         run(1, &META, &Params::default(), &mut h);
@@ -601,18 +567,18 @@ mod test {
             vec![
                 //   0    1    2    3    4    5    6    7    8    9
                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 2.487623459051949, 2.937461098743398, 3.415452179414055, 3.890308235153265, 4.362090154126089, 4.950975679639285, 0.0, 0.0,
-            0.0, 0.0, 5.44079548889611, 5.945153998662335, 6.444376929803646, 6.943482721884593, 7.442471000991258, 7.87593916455426, 0.0, 0.0,
-            0.0, 0.0, 8.36021365527903, 8.956328427812103, 9.456306520591438, 9.956281304365826, 10.456252765808319, 10.7680962081263, 0.0, 0.0,
-            0.0, 0.0, 11.24700955229129, 11.968407305108173, 12.468406854993649, 12.9684063368871, 13.468405750513059, 13.628526529410895, 0.0, 0.0,
-            0.0, 0.0, 14.10225292505446, 14.981838465285742, 15.481838459924806, 15.98183845375407, 16.481838446770258, 16.45825189005138, 0.0, 0.0,
-            0.0, 0.0, 16.92695630148848, 17.394839143291662, 17.8619047206506, 18.328157301286385, 18.79360111590655, 19.258240356725203, 0.0, 0.0,
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 2.487623459051949, 2.937461098743398, 3.415452179414055, 3.890308235153265, 4.362090154126089, 4.950975679639285, 0.0, 0.0,
+                0.0, 0.0, 5.44079548889611, 5.945153998662335, 6.444376929803646, 6.943482721884593, 7.442471000991258, 7.87593916455426, 0.0, 0.0,
+                0.0, 0.0, 8.36021365527903, 8.956328427812103, 9.456306520591438, 9.956281304365826, 10.456252765808319, 10.7680962081263, 0.0, 0.0,
+                0.0, 0.0, 11.24700955229129, 11.968407305108173, 12.468406854993649, 12.9684063368871, 13.468405750513059, 13.628526529410895, 0.0, 0.0,
+                0.0, 0.0, 14.10225292505446, 14.981838465285742, 15.481838459924806, 15.98183845375407, 16.481838446770258, 16.45825189005138, 0.0, 0.0,
+                0.0, 0.0, 16.92695630148848, 17.394839143291662, 17.8619047206506, 18.328157301286385, 18.79360111590655, 19.258240356725203, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
             ]
         );
-        // run(3, &META, &Params::default(), &mut h);
+        run(2, &META, &Params::default(), &mut h);
         assert_eq!(
             h,
             vec![
