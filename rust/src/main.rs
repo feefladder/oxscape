@@ -166,7 +166,6 @@ pub fn generate_order(
     nlevels: &mut usize,
     stack: &mut [usize],
 ) {
-    let mut id = ndon.to_vec();
     let mut nstack = 0;
 
     //Since each value of the `levels` array is later used as the starting value
@@ -196,6 +195,69 @@ pub fn generate_order(
                 let n = donor[8 * c + k as usize];
                 stack[nstack] = n;
                 nstack += 1;
+            }
+        }
+        level_bottom = level_top; // start at the previous level
+        level_top = nstack; // and process all cells that were added
+
+        levels[*nlevels] = nstack;
+        *nlevels += 1;
+    }
+    *nlevels -= 1;
+}
+
+///Cells must be ordered so that they can be traversed such that higher cells
+///are processed before their lower neighbouring cells. This method creates
+///such an order. It also produces a list of "levels": cells which are,
+///topologically, neither higher nor lower than each other. Cells in the same
+///level can all be processed simultaneously without having to worry about
+///race conditions.
+pub fn generate_order_mflow(
+    meta: &GridMeta,
+    nrec: &mut [u8],
+    donor: &[usize],
+    ndon: &[u8],
+    levels: &mut [usize],
+    nlevels: &mut usize,
+    stack: &mut [usize],
+) {
+    let mut nstack = 0;
+
+    //Since each value of the `levels` array is later used as the starting value
+    //of a for-loop, we include a zero at the beginning of the array.
+    levels[0] = 0;
+    *nlevels = 1;
+
+    // outer edge can be added immediately and is a single level
+    for c in 0..meta.size {
+        if nrec[c] == 0 {
+            stack[nstack] = c;
+            nstack += 1;
+        }
+    }
+    levels[*nlevels] = nstack;
+    *nlevels += 1;
+
+    let mut level_bottom = 0; // first cell of current level
+    let mut level_top = nstack; // last cell of current level
+
+    // full BFS search, but we fill an array, so later it can be done in parallel
+    while level_bottom < level_top {
+        for si in level_bottom..level_top {
+            let c = stack[si];
+            println!("at {c}");
+            // load donating cells of focal cell into the stack
+            for k in 0..ndon[c] {
+                let n = donor[8 * c + k as usize];
+                println!("donor: {n}");
+                nrec[n] -= 1;
+                if nrec[n] == 0 {
+                    println!("adding {n} from {c}");
+                    stack[nstack] = n;
+                    nstack += 1;
+                } else {
+                    println!("skipping {n} from {c} at {}", nrec[n])
+                }
             }
         }
         level_bottom = level_top; // start at the previous level
@@ -654,9 +716,9 @@ mod test {
             0.0,1.0,
             2.0,3.0
         ];
-        let rec = [
-            -1,0,
-             2,2,
+        let mut nrec = [
+            0,1,
+            2,2,
         ];
         let donor = [
         //  0 1 2 3 4 5 6 7  0 1 2 3 4 5 6 7
@@ -670,17 +732,60 @@ mod test {
         let stack = [
             0,1,2,3
         ];
-        let wrong_stack = [
-            0,1,2,2,3,3,3
-        ];
         let levels = [
-            0,1,2,3,3,0
+            0,1,2,3,4,4,
         ];
         let mut lvls = vec![0;levels.len()];
-        let mut s = vec![0;wrong_stack.len()];
+        let mut s = vec![0;stack.len()];
         let mut nlevels = 3;
-        generate_order(&GridMeta::new(2, 2), &rec, &donor, &ndon, &mut lvls, &mut nlevels, &mut s);
-        // assert_eq!(lvls, levels);
+        generate_order_mflow(&GridMeta::new(2, 2), &mut nrec, &donor, &ndon, &mut lvls, &mut nlevels, &mut s);
+        assert_eq!(lvls, levels);
         assert_eq!(s, stack);
+        assert_eq!(nlevels, 5);
+        for l in 0..nlevels-1 {
+            assert_eq!(s[lvls[l]..lvls[l+1]], stack[levels[l]..levels[l+1]]);
+        }
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_multiflow_3() {
+        let _h = [
+            0.0,1.0,2.0,
+            3.0,4.0,5.0,
+            6.0,7.0,8.0,
+        ];
+        let mut nrec = [
+            0,1,1,
+            2,4,3,
+            2,4,3,
+        ];
+        let donor = [
+        //  0 1 2 3 4 5 6 7  0 1 2 3 4 5 6 7  0 1 2 3 4 5 6 7
+            1,3,4,0,0,0,0,0, 2,3,4,5,0,0,0,0, 4,5,0,0,0,0,0,0,
+            4,6,7,0,0,0,0,0, 5,6,7,8,0,0,0,0, 7,8,0,0,0,0,0,0,
+            7,0,0,0,0,0,0,0, 8,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+        ];
+        let ndon = [
+            3,4,2,
+            3,4,2,
+            1,1,0,
+        ];
+        let stack = [
+            0,1,2,3,4,5,6,7,8
+        ];
+        let levels = [
+            0,1,2,4,5,7,8,9,9
+        ];
+        let mut lvls = vec![0;levels.len()];
+        let mut s = vec![0;stack.len()];
+        let mut nlevels = 3;
+        generate_order_mflow(&GridMeta::new(3, 3), &mut nrec, &donor, &ndon, &mut lvls, &mut nlevels, &mut s);
+        assert_eq!(lvls, levels);
+        assert_eq!(s, stack);
+        assert_eq!(nlevels, 8);
+        for l in 0..nlevels-1 {
+            assert_eq!(s[lvls[l]..lvls[l+1]], stack[levels[l]..levels[l+1]]);
+        }
     }
 }
