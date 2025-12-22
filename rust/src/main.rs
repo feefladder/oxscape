@@ -1,8 +1,12 @@
 use anyhow::Error;
+use rand::rand_core::le;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use std::cell::UnsafeCell;
 use std::env;
 use std::f64::consts::SQRT_2;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::ptr;
 use std::vec::Vec;
 
 pub const GIT_HASH: &str = env!("GIT_HASH");
@@ -133,7 +137,7 @@ pub fn compute_receivers(meta: &GridMeta, h: &[f64], rec: &mut [i8]) {
     }
 }
 
-pub fn compute_donors(meta: &GridMeta, rec: &[i8], ndon: &mut [usize], donor: &mut [usize]) {
+pub fn compute_donors(meta: &GridMeta, rec: &[i8], ndon: &mut [u8], donor: &mut [usize]) {
     ndon.fill(0);
     for c in 0..meta.size {
         if rec[c] == NO_FLOW {
@@ -142,41 +146,8 @@ pub fn compute_donors(meta: &GridMeta, rec: &[i8], ndon: &mut [usize], donor: &m
         //If this cell passes flow to a downhill cell, make a note of it in that
         //downhill cell's donor array and increment its donor counter
         let n = (c as isize + meta.nshift[rec[c] as usize]) as usize;
-        donor[8 * n + ndon[n]] = c;
+        donor[8 * n + ndon[n] as usize] = c;
         ndon[n] += 1;
-    }
-}
-
-pub fn compute_flow_acc(
-    params: &Params,
-    levels: &[usize],
-    nlevels: usize,
-    stack: &[usize],
-    donor: &[usize],
-    ndon: &[usize],
-    accum: &mut [f64],
-) {
-    // this is really confusing, but in PQ version, it's like
-    // for i in self.levels[0]..self.levels[self.nlevels - 1] {
-    //     let c = self.stack[i];
-    //     self.accum[c] = self.params.cell_area;
-    // }
-    // However, the more logical thing to me is in all other versions:
-    for i in &mut *accum {
-        *i = params.cell_area;
-    }
-
-    for li in (0..=nlevels - 3).rev() {
-        let lvlstart = levels[li];
-        let lvlend = levels[li + 1];
-        //TODO: parallelize
-        for si in lvlstart..lvlend {
-            let c = stack[si];
-            for k in 0..ndon[c] {
-                let n = donor[8 * c + k];
-                accum[c] += accum[n];
-            }
-        }
     }
 }
 
@@ -190,11 +161,12 @@ pub fn generate_order(
     meta: &GridMeta,
     rec: &[i8],
     donor: &[usize],
-    ndon: &[usize],
+    ndon: &[u8],
     levels: &mut [usize],
     nlevels: &mut usize,
     stack: &mut [usize],
 ) {
+    let mut id = ndon.to_vec();
     let mut nstack = 0;
 
     //Since each value of the `levels` array is later used as the starting value
@@ -221,7 +193,7 @@ pub fn generate_order(
             let c = stack[si];
             // load donating cells of focal cell into the stack
             for k in 0..ndon[c] {
-                let n = donor[8 * c + k];
+                let n = donor[8 * c + k as usize];
                 stack[nstack] = n;
                 nstack += 1;
             }
@@ -244,7 +216,62 @@ pub fn add_uplift(meta: &GridMeta, params: &Params, h: &mut [f64]) {
     }
 }
 
-pub fn erode(
+/// If you really want to ignore safety, use this
+struct Bazooka {
+    data: UnsafeCell<*mut f64>,
+}
+
+// SAFETY:
+// - each index `c` is written by exactly one thread
+// - all other accesses are read-only
+// - levels ensure no conflicting writes
+unsafe impl<'a> Sync for Bazooka {}
+
+pub unsafe fn compute_flow_acc(
+    params: &Params,
+    levels: &[usize],
+    nlevels: usize,
+    stack: &[usize],
+    donor: &[usize],
+    ndon: &[u8],
+    accum: &mut [f64],
+) {
+    // this is really confusing, but in PQ version, it's like
+    // for i in self.levels[0]..self.levels[self.nlevels - 1] {
+    //     let c = self.stack[i];
+    //     self.accum[c] = self.params.cell_area;
+    // }
+    // However, the more logical thing to me is in all other versions:
+    for i in &mut *accum {
+        *i = params.cell_area;
+    }
+
+    let acc = Bazooka {
+        data: UnsafeCell::new(accum.as_mut_ptr()),
+    };
+    let acc_ref: &Bazooka = &acc;
+
+    for level in levels
+        .windows(2)
+        .take(nlevels - 2)
+        .rev()
+        .map(|w| &stack[w[0]..w[1]])
+    {
+        // SAFETY: do NOT use `accum` inside this closure, only acc_ptr
+        // Also ∀c∈level:don[c]∉level
+        level.par_iter().for_each(|c| unsafe {
+            let acc_ptr = *acc_ref.data.get();
+            let mut sum = acc_ptr.add(*c).read();
+            for k in 0..ndon[*c] {
+                let n = donor[8 * c + k as usize];
+                sum += acc_ptr.add(n).read();
+            }
+            *acc_ptr.add(*c) = sum;
+        });
+    }
+}
+
+pub unsafe fn erode(
     meta: &GridMeta,
     params: &Params,
     levels: &[usize],
@@ -254,33 +281,49 @@ pub fn erode(
     accum: &[f64],
     h: &mut [f64],
 ) {
-    for li in 1..nlevels - 1 {
-        let lvlstart = levels[li];
-        let lvlend = levels[li + 1];
-        for si in lvlstart..lvlend {
-            let c = stack[si];
-            if rec[c] == NO_FLOW {
-                continue;
+    let h_b = Bazooka {
+        data: UnsafeCell::new(h.as_mut_ptr()),
+    };
+    let h_ref = &h_b;
+    for level in levels
+        .windows(2)
+        .take(nlevels - 1)
+        .map(|w| &stack[w[0]..w[1]])
+    {
+        // SAFETY: do not use h inside this closure
+        //
+        // Also ∀c∈level:rec[c]∉level
+        //
+        // For everything to make sense, also all receivers have been processed,
+        // but that is not a memory safety issue
+        level.par_iter().for_each(|c| {
+            if rec[*c] == NO_FLOW {
+                return;
             }
-            let n = c as isize + meta.nshift[rec[c] as usize];
+            let n = *c as isize + meta.nshift[rec[*c] as usize];
 
-            let length = DR[rec[c] as usize];
+            let length = DR[rec[*c] as usize];
 
-            let fact = params.keq * params.dt * accum[c].powf(params.meq) / length.powf(params.neq);
-            let h0 = h[c];
-            let hn = h[n as usize];
-            let mut hnew = h0;
-            let mut hp = h0;
-            let mut diff = 2.0 * params.tol;
-            while diff.abs() > params.tol {
-                hnew = hnew
-                    - (hnew - h0 + fact * (hnew - hn).powf(params.neq))
-                        / (1.0 + fact * params.neq * (hnew - hn).powf(params.neq - 1.0));
-                diff = hnew - hp;
-                hp = hnew;
+            let fact =
+                params.keq * params.dt * accum[*c].powf(params.meq) / length.powf(params.neq);
+
+            unsafe {
+                let h_ptr = *h_ref.data.get();
+                let h0 = h_ptr.add(*c).read();
+                let hn = h_ptr.add(n as usize).read();
+                let mut hnew = h0;
+                let mut hp = h0;
+                let mut diff = 2.0 * params.tol;
+                while diff.abs() > params.tol {
+                    hnew = hnew
+                        - (hnew - h0 + fact * (hnew - hn).powf(params.neq))
+                            / (1.0 + fact * params.neq * (hnew - hn).powf(params.neq - 1.0));
+                    diff = hnew - hp;
+                    hp = hnew;
+                }
+                *h_ptr.add(*c) = hnew;
             }
-            h[c] = hnew;
-        }
+        });
     }
 }
 
@@ -305,9 +348,13 @@ pub fn run(nstep: usize, meta: &GridMeta, params: &Params, h: &mut [f64]) {
             &mut nlevels,
             &mut stack,
         );
-        compute_flow_acc(params, &levels, nlevels, &stack, &donor, &ndon, &mut accum);
+        unsafe {
+            compute_flow_acc(params, &levels, nlevels, &stack, &donor, &ndon, &mut accum);
+        }
         add_uplift(meta, params, h);
-        erode(meta, params, &levels, nlevels, &stack, &rec, &accum, h);
+        unsafe {
+            erode(meta, params, &levels, nlevels, &stack, &rec, &accum, h);
+        }
 
         if step % 20 == 0 {
             println!("step {step}.");
@@ -341,20 +388,18 @@ pub fn main() -> Result<(), Error> {
     // println!("m Random seed = {rand_seed}");
     let m = GridMeta::new(width, height);
     let mut h = vec![0.0; m.size];
-    generate_boring_terrain(&m, 0.0, 1.0/64.0, &mut h);
+    generate_boring_terrain(&m, 0.0, 1.0 / 64.0, &mut h);
     run(nstep, &m, &Params::default(), &mut h);
 
     print_dem(&out_name, &h, &width, &height)?;
-    // let f = File::create(out_name)?;
-    
-    // let mut e = tiff::encoder::TiffEncoder::new(f)?;
-    // e.write_image::<tiff::encoder::colortype::Gray64Float>(width as _, height as _, &h)?;
     Ok(())
-}   
+}
 
 #[cfg(test)]
 mod test {
-    use crate::test::consts::{ACCUM, DONOR, H_INIT, H_LIFT, H_ONE, LEVELS, N_LEVELS, NDON, REC, STACK};
+    use crate::test::consts::{
+        ACCUM, DONOR, H_INIT, H_LIFT, H_ONE, LEVELS, N_LEVELS, NDON, REC, STACK,
+    };
 
     use super::*;
 
@@ -404,7 +449,7 @@ mod test {
         /* 8*/0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,73, 0, 0, 0, 0, 0, 0, 0,74, 0, 0, 0, 0, 0, 0, 0,75, 0, 0, 0, 0, 0, 0, 0,76, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         /* 9*/0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
-    pub const NDON: [usize;100] = [
+    pub const NDON: [u8;100] = [
     //  0  1  2  3  4  5  6  7  8  9
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 1, 1, 1, 1, 1, 0, 0,
@@ -420,15 +465,15 @@ mod test {
     pub const STACK: [usize;100] = [
     //     0   1   2   3   4   5   6   7   8   9
     /* 0*/ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9,
-            10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-            20, 21, 28, 29, 30, 31, 38, 39, 40, 41,
-            48, 49, 50, 51, 58, 59, 60, 61, 68, 69,
-            70, 71, 78, 79, 80, 81, 82, 83, 84, 85,
-            86, 87, 88, 89, 90, 91, 92, 93, 94, 95,
-            96, 97, 98, 99, 23, 24, 25, 26, 27, 22,
-            32, 37, 42, 47, 52, 57, 62, 67, 72, 77,
-            73, 74, 75, 76, 33, 34, 35, 36, 43, 44,
-            45, 46, 53, 54, 55, 56, 63, 64, 65, 66,
+    /* 1*/10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+    /* 2*/20, 21, 28, 29, 30, 31, 38, 39, 40, 41,
+    /* 3*/48, 49, 50, 51, 58, 59, 60, 61, 68, 69,
+    /* 4*/70, 71, 78, 79, 80, 81, 82, 83, 84, 85,
+    /* 5*/86, 87, 88, 89, 90, 91, 92, 93, 94, 95,
+    /* 6*/96, 97, 98, 99, 23, 24, 25, 26, 27, 22,
+    /* 7*/32, 37, 42, 47, 52, 57, 62, 67, 72, 77,
+    /* 8*/73, 74, 75, 76, 33, 34, 35, 36, 43, 44,
+    /* 9*/45, 46, 53, 54, 55, 56, 63, 64, 65, 66,
     ];
     pub const LEVELS: [usize;40] = [
         //   0  1  2  3  4  5  6   7   8   9
@@ -524,36 +569,41 @@ mod test {
         assert_eq!(stack, STACK);
         assert_eq!(nlevels, 7);
         assert_eq!(levels, LEVELS);
+        assert_eq!(levels, LEVELS);
     }
 
     #[test]
     fn test_compute_acc() {
         let mut accum = vec![0.0; META.size];
-        compute_flow_acc(
-            &Params::default(),
-            &LEVELS,
-            N_LEVELS,
-            &STACK,
-            &DONOR,
-            &NDON,
-            &mut accum,
-        );
+        unsafe {
+            compute_flow_acc(
+                &Params::default(),
+                &LEVELS,
+                N_LEVELS,
+                &STACK,
+                &DONOR,
+                &NDON,
+                &mut accum,
+            );
+        }
         assert_eq!(accum, ACCUM);
     }
 
     #[test]
     fn test_erode() {
         let mut h = H_LIFT.to_vec();
-        erode(
-            &META,
-            &Params::default(),
-            &LEVELS,
-            N_LEVELS,
-            &STACK,
-            &REC,
-            &ACCUM,
-            &mut h,
-        );
+        unsafe {
+            erode(
+                &META,
+                &Params::default(),
+                &LEVELS,
+                N_LEVELS,
+                &STACK,
+                &REC,
+                &ACCUM,
+                &mut h,
+            );
+        }
         assert_eq!(h, H_ONE);
     }
 
@@ -595,5 +645,42 @@ mod test {
                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
             ]
         );
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_multiflow() {
+        let _h = [
+            0.0,1.0,
+            2.0,3.0
+        ];
+        let rec = [
+            -1,0,
+             2,2,
+        ];
+        let donor = [
+        //  0 1 2 3 4 5 6 7  0 1 2 3 4 5 6 7
+            1,2,0,0,0,0,0,0, 2,3,0,0,0,0,0,0,
+            3,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+        ];
+        let ndon = [
+            2,2,
+            1,0
+        ];
+        let stack = [
+            0,1,2,3
+        ];
+        let wrong_stack = [
+            0,1,2,2,3,3,3
+        ];
+        let levels = [
+            0,1,2,3,3,0
+        ];
+        let mut lvls = vec![0;levels.len()];
+        let mut s = vec![0;wrong_stack.len()];
+        let mut nlevels = 3;
+        generate_order(&GridMeta::new(2, 2), &rec, &donor, &ndon, &mut lvls, &mut nlevels, &mut s);
+        // assert_eq!(lvls, levels);
+        assert_eq!(s, stack);
     }
 }
