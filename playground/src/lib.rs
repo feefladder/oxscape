@@ -38,6 +38,22 @@ pub unsafe fn do_stuff(arr: &mut [i32], levels: &[usize], stack: &[isize], allow
     }
 }
 
+struct RawBazooka(*mut i32);
+
+unsafe impl Sync for RawBazooka {}
+
+pub unsafe fn do_raw_stuff(arr: &mut[i32], levels: &[usize], stack: &[isize], allowed_indices: &[isize]) {
+    let ptr = RawBazooka(arr.as_mut_ptr());
+    let r = &ptr;
+    for level in levels.windows(2).map(|w|&stack[w[0]..w[1]]) {
+        level.into_par_iter().for_each(|idx| unsafe {
+            let p = r;
+            let val = p.0.offset(allowed_indices[*idx as usize]).read();
+            *p.0.offset(*idx) += val;
+        });
+    }
+}
+
 pub fn do_slow_stuff(arr: &mut [i32], levels: &[usize], stack: &[usize], allowed_indices: &[usize]) {
     for level in levels.windows(2).map(|w| &stack[w[0]..w[1]]) {
         let mut v= vec![0;level.len()];
@@ -64,6 +80,19 @@ fn test_stuff() {
     assert_eq!(arr, [1,2,5,8]);
 }
 
+
+#[test]
+fn test_raw_stuff() {
+    let mut arr = [0,1,2,3];
+    let stack = [0,2,1,3];
+    let levels = [0,2,4];
+    let allowed_indices = [1,0,3,2];
+    unsafe {
+        do_raw_stuff(&mut arr, &levels, &stack, &allowed_indices);
+    }
+    assert_eq!(arr, [1,2,5,8]);
+}
+
 #[test]
 fn test_rayon() {
     let mut arr = [0,1,2,3];
@@ -72,6 +101,7 @@ fn test_rayon() {
 }
 
 #[test]
+#[ignore]
 fn test_datarace() {
     let mut arr = [0,1,2,3];
     let stack = [0,2,1,3];

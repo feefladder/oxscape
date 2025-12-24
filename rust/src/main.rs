@@ -267,12 +267,12 @@ pub fn add_uplift(meta: &GridMeta, params: &Params, h: &mut [f64]) {
 }
 
 /// If you really want to ignore safety, use this
-struct Bazooka<T>(UnsafeCell<*mut T>);
+struct Bazooka<T: Send + Sync>(*mut T);
 
 // SAFETY:
 // use at your own risk. Avoid data races
 // In here, we only use it for accessing levels
-unsafe impl<T> Sync for Bazooka<T> {}
+unsafe impl<T: Send + Sync> Sync for Bazooka<T> {}
 
 pub unsafe fn compute_flow_acc(
     params: &Params,
@@ -285,8 +285,8 @@ pub unsafe fn compute_flow_acc(
 ) {
     accum.fill(params.cell_area);
 
-    let acc = Bazooka(UnsafeCell::new(accum.as_mut_ptr()));
-    let acc_ref= &acc;
+    let b = Bazooka(accum.as_mut_ptr());
+    let acc = &b;
 
     for level in levels
         .windows(2)
@@ -297,13 +297,12 @@ pub unsafe fn compute_flow_acc(
         // SAFETY: do NOT use `accum` inside this closure, only acc_ptr
         // Also ∀c∈level:don[c]∉level
         level.par_iter().for_each(|c| unsafe {
-            let acc_ptr = *acc_ref.0.get();
-            let mut sum = acc_ptr.add(*c).read();
+            let mut sum = acc.0.add(*c).read();
             for k in 0..ndon[*c] {
                 let n = donor[*c][k as usize];
-                sum += acc_ptr.add(n).read();
+                sum += acc.0.add(n).read();
             }
-            *acc_ptr.add(*c) = sum;
+            *acc.0.add(*c) = sum;
         });
     }
 }
@@ -318,7 +317,7 @@ pub unsafe fn erode(
     accum: &[f64],
     h: &mut [f64],
 ) {
-    let h_b = Bazooka(UnsafeCell::new(h.as_mut_ptr()));
+    let h_b = Bazooka(h.as_mut_ptr());
     let h_ref = &h_b;
     for level in levels
         .windows(2)
@@ -343,9 +342,8 @@ pub unsafe fn erode(
                 params.keq * params.dt * accum[*c].powf(params.meq) / length.powf(params.neq);
 
             unsafe {
-                let h_ptr = *h_ref.0.get();
-                let h0 = h_ptr.add(*c).read();
-                let hn = h_ptr.add(n as usize).read();
+                let h0 = h_ref.0.add(*c).read();
+                let hn = h_ref.0.add(n as usize).read();
                 let mut hnew = h0;
                 let mut hp = h0;
                 let mut diff = 2.0 * params.tol;
@@ -356,7 +354,7 @@ pub unsafe fn erode(
                     diff = hnew - hp;
                     hp = hnew;
                 }
-                *h_ptr.add(*c) = hnew;
+                *h_ref.0.add(*c) = hnew;
             }
         });
     }

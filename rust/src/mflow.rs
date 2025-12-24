@@ -211,7 +211,7 @@ pub unsafe fn accum_mflow(
 ) {
     accum.fill(params.cell_area);
 
-    let acc = Bazooka(UnsafeCell::new(accum.as_mut_ptr()));
+    let acc = Bazooka(accum.as_mut_ptr());
     let acc_ref= &acc;
 
     for level in levels
@@ -225,30 +225,29 @@ pub unsafe fn accum_mflow(
         // current cell, while reading its donors and receivers. Those are on
         // other levels.
         level.iter().for_each(|c| unsafe {
-            let acc_ptr = *acc_ref.0.get();
-            let mut sum = acc_ptr.add(*c).read();
+            let mut sum = acc_ref.0.add(*c).read();
             for k in 0..8 {
                 let n = donor[*c][k as usize];
                 if n == 0 {
                     continue;
                 }
-                sum += acc_ptr.add(n).read() * flows[n][(k as usize+4)%8];
+                sum += acc_ref.0.add(n).read() * flows[n][(k as usize+4)%8];
             }
-            *acc_ptr.add(*c) = sum;
+            *acc_ref.0.add(*c) = sum;
         });
     }
 }
 
-pub struct LevelAccessor<'a, T> {
+pub struct LevelAccessor<'a, T: Send + Sync> {
     arr: &'a Bazooka<T>,
     idx: usize,
     meta: &'a GridMeta,
     flows: &'a [[f64;8]],
 }
 
-impl<'a, T: Zero + Copy> LevelAccessor<'a, T> {
+impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
     pub fn cell(&self) -> &mut T {
-        unsafe {(*self.arr.0.get()).add(self.idx).as_mut().unwrap()}
+        unsafe {self.arr.0.add(self.idx).as_mut().unwrap()}
     }
 
     pub fn receivers(&self) -> [(f64,T);8] {
@@ -256,7 +255,7 @@ impl<'a, T: Zero + Copy> LevelAccessor<'a, T> {
         for (n,flow) in self.flows[self.idx].iter().enumerate() {
             if *flow != NO_FLOW_GEN {
                 unsafe {
-                res[n] = (*flow, (*self.arr.0.get()).offset(self.idx as isize+self.meta.nshift[n]).read())
+                res[n] = (*flow, self.arr.0.offset(self.idx as isize+self.meta.nshift[n]).read())
                 }
             }
         }
@@ -270,7 +269,7 @@ impl<'a, T: Zero + Copy> LevelAccessor<'a, T> {
             let flow = self.flows[offset as usize][(n+4)%8];
             if flow != NO_FLOW_GEN {
                 unsafe {
-                    res[n] = (flow, (*self.arr.0.get()).offset(offset).read())
+                    res[n] = (flow, self.arr.0.offset(offset).read())
                 }
             }
         }
@@ -318,9 +317,9 @@ impl Order {
         })
     }
 
-    pub fn for_lvls<T, F: Fn(LevelAccessor<T>) + Sync>(&self, r: Range<usize>, f: F, data: &mut [T]) -> Result<()> {
+    pub fn for_lvls<T: Zero + Copy + Send + Sync, F: Fn(LevelAccessor<T>) + Sync>(&self, r: Range<usize>, f: F, data: &mut [T]) -> Result<()> {
         if r.end >= self.levels.len() {return Err(anyhow!("Range {r:?} exceeds number of levels {}", self.levels.len()))}
-        let b = Bazooka(UnsafeCell::new(data.as_mut_ptr()));
+        let b = Bazooka(data.as_mut_ptr());
         for level in self.levels
         .windows(2)
         .take(r.end)
@@ -332,9 +331,9 @@ impl Order {
         Ok(())
     }
 
-    pub fn for_lvls_rev<T, F: Fn(LevelAccessor<T>) + Sync>(&self, r: Range<usize>, f: F, data: &mut [T]) -> Result<()> {
+    pub fn for_lvls_rev<T: Zero + Copy + Send + Sync, F: Fn(LevelAccessor<T>) + Sync>(&self, r: Range<usize>, f: F, data: &mut [T]) -> Result<()> {
         if r.end >= self.levels.len() {return Err(anyhow!("Range {r:?} exceeds number of levels {}", self.levels.len()))}
-        let b = Bazooka(UnsafeCell::new(data.as_mut_ptr()));
+        let b = Bazooka(data.as_mut_ptr());
         for level in self.levels
         .windows(2)
         .take(r.end)
