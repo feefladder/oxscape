@@ -90,6 +90,7 @@ name = "oxscape"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "num-traits",
  "rand",
  "rand_distr",
  "rand_mt",

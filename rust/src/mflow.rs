@@ -1,5 +1,8 @@
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
+use num_traits::{Float, Zero};
+use rayon::prelude::*;
 use std::{cell::UnsafeCell, f64::consts::FRAC_PI_4};
+use std::ops::Range;
+use anyhow::{Result, anyhow};
 
 use crate::{Bazooka, GridMeta, Params, XSHIFT, YSHIFT};
 
@@ -40,14 +43,15 @@ const fn nwrap(n: usize) -> usize {
     if n == 8 { 0 } else { n }
 }
 
-pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u8]) {
-    flows.fill([NO_FLOW_GEN; 8]);
+pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u8])
+{
+    flows.fill([-1.0; 8]);
     nrec.fill(0);
     //TODO: Assumes that the width and height of grid cells are equal and scaled
     //to 1.
-    let d1: f64 = 1.0;
-    let d2: f64 = 1.0;
-    let dang: f64 = d2.atan2(d1);
+    let d1 = 1.0;
+    let d2 = 1.0;
+    let dang = d2.atan2(d1);
 
     flows.par_iter_mut().zip(nrec).enumerate().for_each(|(n, (ps, recs),)| {
         if meta.is_edge(n) {
@@ -151,26 +155,22 @@ pub fn generate_order_mflow(
     meta: &GridMeta,
     nrec: &mut [u8],
     donor: &[[usize; 8]],
-    levels: &mut [usize],
-    nlevels: &mut usize,
     stack: &mut [usize],
-) {
+) -> Vec<usize> {
     let mut nstack = 0;
+    let mut levels = Vec::with_capacity(meta.width*2+meta.height*2);
 
-    //Since each value of the `levels` array is later used as the starting value
-    //of a for-loop, we include a zero at the beginning of the array.
-    levels[0] = 0;
-    *nlevels = 1;
+    // The first level starts at zero
+    levels.push(0);
 
     // Add cells that don't give flow as the first level
     for c in 0..meta.size {
         if nrec[c] == 0 {
             stack[nstack] = c;
-            nstack += 1;
+            nstack += 1
         }
     }
-    levels[*nlevels] = nstack;
-    *nlevels += 1;
+    levels.push(nstack);
 
     let mut level_bottom = 0; // first cell of current level
     let mut level_top = nstack; // last cell of current level
@@ -195,16 +195,15 @@ pub fn generate_order_mflow(
         level_bottom = level_top; // start at the previous level
         level_top = nstack; // and process all cells that were added
 
-        levels[*nlevels] = nstack;
-        *nlevels += 1;
+        levels.push(nstack);
     }
-    *nlevels -= 1;
+    levels.pop();
+    levels
 }
 
-pub fn accum_mflow(
+pub unsafe fn accum_mflow(
     params: &Params,
     levels: &[usize],
-    nlevels: &usize,
     stack: &[usize],
     donor: &[[usize; 8]],
     flows: &[[f64;8]],
@@ -212,21 +211,21 @@ pub fn accum_mflow(
 ) {
     accum.fill(params.cell_area);
 
-    let acc = Bazooka {
-        data: UnsafeCell::new(accum.as_mut_ptr()),
-    };
-    let acc_ref: &Bazooka = &acc;
+    let acc = Bazooka(UnsafeCell::new(accum.as_mut_ptr()));
+    let acc_ref= &acc;
 
     for level in levels
         .windows(2)
-        .take(nlevels - 2)
+        .take(levels.len() - 2)
         .rev()
         .map(|w| &stack[w[0]..w[1]])
     {
-        // SAFETY: do NOT use `accum` inside this closure, only acc_ptr
-        // Also ∀c∈level:don[c]∉level
+        // SAFETY: do NOT use `accum` inside this closure, only acc_ptr Also
+        // ∀c∈level:don[c]∉level∧rec[c]∉level That is: we can safely mutate the
+        // current cell, while reading its donors and receivers. Those are on
+        // other levels.
         level.iter().for_each(|c| unsafe {
-            let acc_ptr = *acc_ref.data.get();
+            let acc_ptr = *acc_ref.0.get();
             let mut sum = acc_ptr.add(*c).read();
             for k in 0..8 {
                 let n = donor[*c][k as usize];
@@ -240,13 +239,122 @@ pub fn accum_mflow(
     }
 }
 
+pub struct LevelAccessor<'a, T> {
+    arr: &'a Bazooka<T>,
+    idx: usize,
+    meta: &'a GridMeta,
+    flows: &'a [[f64;8]],
+}
+
+impl<'a, T: Zero + Copy> LevelAccessor<'a, T> {
+    pub fn cell(&self) -> &mut T {
+        unsafe {(*self.arr.0.get()).add(self.idx).as_mut().unwrap()}
+    }
+
+    pub fn receivers(&self) -> [(f64,T);8] {
+        let mut res = [(NO_FLOW_GEN, T::zero());8];
+        for (n,flow) in self.flows[self.idx].iter().enumerate() {
+            if *flow != NO_FLOW_GEN {
+                unsafe {
+                res[n] = (*flow, (*self.arr.0.get()).offset(self.idx as isize+self.meta.nshift[n]).read())
+                }
+            }
+        }
+        res
+    }
+
+    pub fn donors(&self) -> [(f64,T);8] {
+        let mut res = [(NO_FLOW_GEN, T::zero());8];
+        for n in 0..8 {
+            let offset = self.idx as isize + self.meta.nshift[n];
+            let flow = self.flows[offset as usize][(n+4)%8];
+            if flow != NO_FLOW_GEN {
+                unsafe {
+                    res[n] = (flow, (*self.arr.0.get()).offset(offset).read())
+                }
+            }
+        }
+        res
+    }
+}
+
+pub struct Order {
+    meta: GridMeta,
+    flows: Vec<[f64;8]>,
+    stack: Vec<usize>,
+    levels: Vec<usize>,
+}
+
+pub enum Metrics {
+    Dinf
+}
+
+impl Order {
+    pub fn from_dem_metric(meta: GridMeta, dem: &[f64], metric: Metrics) -> Result<Self> {
+        let fm = match metric {
+            Metrics::Dinf => fm_dinf
+        };
+        unsafe {
+            Self::from_dem_fn(meta, dem, fm)
+        }
+    }
+
+    pub unsafe fn from_dem_fn<F: Fn(&GridMeta, &[f64], &mut [[f64; 8]], &mut [u8])>(meta: GridMeta, dem: &[f64], metric: F) -> Result<Self> {
+        if meta.size != dem.len() {
+            return Err(anyhow!("meta dem mismatch"));
+        }
+        let mut flows = vec![[0.0;8];meta.size];
+        let mut nrec = vec![0;meta.size];
+        metric(&meta, dem, &mut flows, &mut nrec);
+        let donor = vec![[0;8];meta.size];
+        // actually it would also make sense to return stack, but it normally always has the same size as the grid if there are no nodata cells
+        let mut stack = vec![0;meta.size];
+        let levels = generate_order_mflow(&meta, &mut nrec, &donor, &mut stack);
+        Ok(Self {
+            meta,
+            flows,
+            stack,
+            levels,
+        })
+    }
+
+    pub fn for_lvls<T, F: Fn(LevelAccessor<T>) + Sync>(&self, r: Range<usize>, f: F, data: &mut [T]) -> Result<()> {
+        if r.end >= self.levels.len() {return Err(anyhow!("Range {r:?} exceeds number of levels {}", self.levels.len()))}
+        let b = Bazooka(UnsafeCell::new(data.as_mut_ptr()));
+        for level in self.levels
+        .windows(2)
+        .take(r.end)
+        .skip(r.start)
+        .map(|w| &self.stack[w[0]..w[1]])
+        {
+            level.into_par_iter().for_each(|v| f(LevelAccessor { arr: &b, idx: *v, meta: &self.meta, flows: &self.flows }));
+        }
+        Ok(())
+    }
+
+    pub fn for_lvls_rev<T, F: Fn(LevelAccessor<T>) + Sync>(&self, r: Range<usize>, f: F, data: &mut [T]) -> Result<()> {
+        if r.end >= self.levels.len() {return Err(anyhow!("Range {r:?} exceeds number of levels {}", self.levels.len()))}
+        let b = Bazooka(UnsafeCell::new(data.as_mut_ptr()));
+        for level in self.levels
+        .windows(2)
+        .take(r.end)
+        .skip(r.start)
+        .rev()
+        .map(|w| &self.stack[w[0]..w[1]])
+        {
+            level.into_par_iter().for_each(|v| f(LevelAccessor { arr: &b, idx: *v, meta: &self.meta, flows: &self.flows }));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[rustfmt::skip]
     mod consts {
-    pub const H_2:[f64;4] = [
+    pub const _H_2:[f64;4] = [
         0.0,1.0,
         2.0,3.0
     ];
@@ -291,16 +399,13 @@ mod test {
             0,1,2,3
         ];
         let levels = [
-            0,1,2,3,4,4,
+            0,1,2,3,4,
         ];
-        let mut lvls = vec![0;levels.len()];
         let mut s = vec![0;stack.len()];
-        let mut nlevels = 3;
-        generate_order_mflow(&GridMeta::new(2, 2), &mut nrec, &donor, &mut lvls, &mut nlevels, &mut s);
+        let lvls = generate_order_mflow(&GridMeta::new(2, 2), &mut nrec, &donor, &mut s);
         assert_eq!(lvls, levels);
         assert_eq!(s, stack);
-        assert_eq!(nlevels, 5);
-        for l in 0..nlevels-1 {
+        for l in 0..lvls.len()-1 {
             assert_eq!(s[lvls[l]..lvls[l+1]], stack[levels[l]..levels[l+1]]);
         }
     }
@@ -328,16 +433,13 @@ mod test {
             0,1,2,3,4,5,6,7,8
         ];
         let levels = [
-            0,1,2,4,5,7,8,9,9
+            0,1,2,4,5,7,8,9,
         ];
-        let mut lvls = vec![0;levels.len()];
         let mut s = vec![0;stack.len()];
-        let mut nlevels = 3;
-        generate_order_mflow(&GridMeta::new(3, 3), &mut nrec, &donor, &mut lvls, &mut nlevels, &mut s);
+        let lvls = generate_order_mflow(&GridMeta::new(3, 3), &mut nrec, &donor, &mut s);
         assert_eq!(lvls, levels);
         assert_eq!(s, stack);
-        assert_eq!(nlevels, 8);
-        for l in 0..nlevels-1 {
+        for l in 0..lvls.len()-1 {
             assert_eq!(s[lvls[l]..lvls[l+1]], stack[levels[l]..levels[l+1]]);
         }
     }
@@ -405,17 +507,14 @@ mod test {
             [-1.0;8],[-1.0,0.590334470601733,0.40966552939826695,-1.0,-1.0, -1.0, -1.0, -1.0],[-1.0;8],
             [-1.0;8],[-1.0;8],[-1.0;8],
         ]);
-        let mut levels = [0;4];
-        let mut nlevels = 0;
         let mut stack = [0;9];
-        generate_order_mflow(&meta, &mut nrec, &donor, &mut levels, &mut nlevels, &mut stack);
+        let levels = generate_order_mflow(&meta, &mut nrec, &donor, &mut stack);
         assert_eq!(&stack, &[
             0,1,2,3,5,6,7,8,4
         ]);
-        assert_eq!(nlevels, 3);
-        assert_eq!(&levels, &[0,8,9,9]);
+        assert_eq!(&levels, &[0,8,9]);
         let mut acc = [0.0;9];
-        accum_mflow(&Params::default(), &levels, &nlevels, &stack, &donor, &flows, &mut acc);
+        unsafe {accum_mflow(&Params::default(), &levels, &stack, &donor, &flows, &mut acc);}
         assert_eq!(&acc, &[
             1.590334470601733, 1.40966552939826695, 1.0,
             1.0, 1.0, 1.0,
@@ -441,17 +540,15 @@ mod test {
             [0;8],[0;8],[0;8],[0;8], // 3
         ]);
 
-        let mut levels = vec![0;5];
-        let mut nlevels = 0;
+        
         let mut stack = vec![0;meta.size];
-        generate_order_mflow(&meta, &mut nrec, &donor, &mut levels, &mut nlevels, &mut stack);
+        let levels = generate_order_mflow(&meta, &mut nrec, &donor, &mut stack);
         assert_eq!(stack, &[
             0, 1, 2, 3, 4, 7, 8, 11, 12, 13, 14, 15, 5, 6, 9, 10
         ]);
-        assert_eq!(nlevels, 4);
-        assert_eq!(levels, &[0,12,14,16,16]);
-        let mut lvls = Vec::with_capacity(nlevels-1);
-        for w in levels.windows(2).take(nlevels-1) {
+        assert_eq!(levels, &[0,12,14,16]);
+        let mut lvls = Vec::with_capacity(levels.len()-1);
+        for w in levels.windows(2).take(levels.len()-1) {
             lvls.push(&stack[w[0]..w[1]])
         }
         assert_eq!(lvls, vec![
@@ -460,7 +557,7 @@ mod test {
             vec![9,10],
         ]);
         let mut acc = vec![0.0;meta.size];
-        accum_mflow(&Params::default(), &levels, &nlevels, &stack, &donor, &flows, &mut acc);
+        unsafe{accum_mflow(&Params::default(), &levels, &stack, &donor, &flows, &mut acc);}
         assert_eq!(&acc, &[
             2.180668941203466, 2.6515052128193717, 1.5774913753754292, 1.0,
             1.590334470601733, 2.0, 1.409665529398267, 1.0,

@@ -1,4 +1,4 @@
-use anyhow::Error;
+use anyhow::{Error, Result};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::cell::UnsafeCell;
 use std::env;
@@ -102,6 +102,10 @@ impl GridMeta {
                 iwidth - 1,
             ],
         }
+    }
+
+    pub fn check_dem<T>(&self, dem: &[T]) -> Result<()> {
+        if dem.len() != self.size { Err(anyhow::anyhow!("size mismatch"))} else {Ok(())}
     }
 
     pub fn width(&self) -> usize {
@@ -263,14 +267,12 @@ pub fn add_uplift(meta: &GridMeta, params: &Params, h: &mut [f64]) {
 }
 
 /// If you really want to ignore safety, use this
-struct Bazooka {
-    data: UnsafeCell<*mut f64>,
-}
+struct Bazooka<T>(UnsafeCell<*mut T>);
 
 // SAFETY:
 // use at your own risk. Avoid data races
 // In here, we only use it for accessing levels
-unsafe impl Sync for Bazooka {}
+unsafe impl<T> Sync for Bazooka<T> {}
 
 pub unsafe fn compute_flow_acc(
     params: &Params,
@@ -283,10 +285,8 @@ pub unsafe fn compute_flow_acc(
 ) {
     accum.fill(params.cell_area);
 
-    let acc = Bazooka {
-        data: UnsafeCell::new(accum.as_mut_ptr()),
-    };
-    let acc_ref: &Bazooka = &acc;
+    let acc = Bazooka(UnsafeCell::new(accum.as_mut_ptr()));
+    let acc_ref= &acc;
 
     for level in levels
         .windows(2)
@@ -297,7 +297,7 @@ pub unsafe fn compute_flow_acc(
         // SAFETY: do NOT use `accum` inside this closure, only acc_ptr
         // Also ∀c∈level:don[c]∉level
         level.par_iter().for_each(|c| unsafe {
-            let acc_ptr = *acc_ref.data.get();
+            let acc_ptr = *acc_ref.0.get();
             let mut sum = acc_ptr.add(*c).read();
             for k in 0..ndon[*c] {
                 let n = donor[*c][k as usize];
@@ -318,9 +318,7 @@ pub unsafe fn erode(
     accum: &[f64],
     h: &mut [f64],
 ) {
-    let h_b = Bazooka {
-        data: UnsafeCell::new(h.as_mut_ptr()),
-    };
+    let h_b = Bazooka(UnsafeCell::new(h.as_mut_ptr()));
     let h_ref = &h_b;
     for level in levels
         .windows(2)
@@ -345,7 +343,7 @@ pub unsafe fn erode(
                 params.keq * params.dt * accum[*c].powf(params.meq) / length.powf(params.neq);
 
             unsafe {
-                let h_ptr = *h_ref.data.get();
+                let h_ptr = *h_ref.0.get();
                 let h0 = h_ptr.add(*c).read();
                 let hn = h_ptr.add(n as usize).read();
                 let mut hnew = h0;

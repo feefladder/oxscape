@@ -6,6 +6,7 @@
 \usepackage{orcidlink}
 \usepackage{amsmath}
 \usepackage{graphicx}
+\usepackage{minted}
 \usepackage{svg}
 \usepackage{subcaption}
 \usepackage{ccicons}
@@ -17,7 +18,6 @@
 \usepackage{lineno}     % for line numbers
 
 \usepackage[backend=biber, style=numeric]{biblatex}
-\addbibresource{../latex/library.bib}
 \addbibresource{erosion.bib}
 \usepackage{hyperref}
 \hypersetup{colorlinks=true}
@@ -63,7 +63,7 @@ Apart from these comments, I will also propose a workflow for developing erosion
 models that should increase maintainability, portability and verifiability of
 new or existing codebases. To reify this workflow, I adopted it to port a sample
 program \cite{barnesAcceleratingFluvialIncision2019} to Rust. Code is available
-on codeberg and github.
+on \href{}{Codeberg} and \href{}{Github}.
 
 \begin{enumerate}
     \item Make the algorithm work
@@ -73,15 +73,29 @@ on codeberg and github.
     \item Make it run fast, keeping the same tests
 \end{enumerate}
 
+Then, when changing unit tests, 
+
 \begin{figure}
     \includesvg[width=\textwidth]{img/catchment_blocks.svg}
     \caption{OpenLisem and its dependencies as a catchment. Possible downstream
     implementations are currently disconnected.}\label{fig:catchment}
 \end{figure}
 
-\subsection{Dependency management with Git}\label{subs:deps}
+\subsection{OpenLisem Dependency management with Git}\label{subs:deps}
+
+Git has three ways to add third-party repositories:
+\href{https://stackoverflow.com/questions/32407634/when-to-use-git-subtree}{Submodules
+and Subtrees}. For OpenLisem, I would recommend the use of a Subtree. Sadly, however, I did not get that to work. Therefore, the sad compromise is:
 
 
+This pulls
+in all relevant code from a specific branch, tag or commit, allows for local
+changes and is invisible to users of the codebase. Since changing some default
+configuration is
+\href{https://github.com/vjetten/openlisem/blob/cd0573a24bcb95f3d90c1c36eb1a44b6714123e4/compile_lisem_linux.txt#L35}{advised},
+submodules are ruled out.
+
+To add the required branch to the main repository
 
 \printbibliography
 
