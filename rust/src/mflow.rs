@@ -1,8 +1,8 @@
+use anyhow::{Result, anyhow};
 use num_traits::{Float, Zero};
 use rayon::prelude::*;
-use std::{cell::UnsafeCell, f64::consts::FRAC_PI_4};
 use std::ops::Range;
-use anyhow::{Result, anyhow};
+use std::{cell::UnsafeCell, f64::consts::FRAC_PI_4};
 
 use crate::{Bazooka, GridMeta, Params, XSHIFT, YSHIFT};
 
@@ -36,14 +36,13 @@ const DY_E2: [isize; 8] = [-1, -1, -1, -1, 1, 1, 1, 1];
 const DX_E2: [isize; 8] = [-1, -1, 1, 1, 1, 1, -1, -1];
 const AC: [f64; 8] = [2.0, 1.0, 1.0, 0.0, 4.0, 3.0, 3.0, 2.0];
 const AF: [f64; 8] = [-1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0];
-const NO_FLOW_GEN: f64 = 0.0;
+pub const NO_FLOW_GEN: f64 = 0.0;
 
 const fn nwrap(n: usize) -> usize {
     if n == 8 { 0 } else { n }
 }
 
-pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u8])
-{
+pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u8]) {
     flows.fill([NO_FLOW_GEN; 8]);
     nrec.fill(0);
     //TODO: Assumes that the width and height of grid cells are equal and scaled
@@ -52,92 +51,91 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
     let d2 = 1.0;
     let dang = d2.atan2(d1);
 
-    flows.par_iter_mut().zip(nrec).enumerate().for_each(|(n, (ps, recs),)| {
-        if meta.is_edge(n) {
-            return;
-        }
+    flows
+        .par_iter_mut()
+        .zip(nrec)
+        .enumerate()
+        .for_each(|(n, (ps, recs))| {
+            if meta.is_edge(n) {
+                return;
+            }
 
-        let mut imax = 9;
-        let mut smax = 0.0;
-        let mut rmax = 0.0;
+            let mut imax = 9;
+            let mut smax = 0.0;
+            let mut rmax = 0.0;
 
-        for i in 0..8 {
-            //Is is assumed that cells with a value of NoData have very negative
-            //elevations with the result that they draw flow off of the grid.
+            for i in 0..8 {
+                //Is is assumed that cells with a value of NoData have very negative
+                //elevations with the result that they draw flow off of the grid.
 
-            //Choose elevations based on Table 1 of Tarboton (1997), Barnes TODO
-            let e0: f64 = h[n];
-            let e1: f64 = h[(n as isize + DX_E1[i] + DY_E1[i] * meta.width as isize) as usize];
-            let e2: f64 = h[(n as isize + DX_E2[i] + DY_E2[i] * meta.width as isize) as usize];
+                //Choose elevations based on Table 1 of Tarboton (1997), Barnes TODO
+                let e0: f64 = h[n];
+                let e1: f64 = h[(n as isize + DX_E1[i] + DY_E1[i] * meta.width as isize) as usize];
+                let e2: f64 = h[(n as isize + DX_E2[i] + DY_E2[i] * meta.width as isize) as usize];
 
-            let s1 = (e0 - e1) / d1;
-            let s2 = (e1 - e2) / d2;
+                let s1 = (e0 - e1) / d1;
+                let s2 = (e1 - e2) / d2;
 
-            let mut r = s2.atan2(s1);
-            let s;
+                let mut r = s2.atan2(s1);
+                let s;
 
-            if r < 1e-7 {
-                r = 0.0;
-                s = s1;
-            } else if r > dang - 1e-7 {
-                r = dang;
-                s = (e0 - e2) / (d1 * d1 + d2 * d2).sqrt();
+                if r < 1e-7 {
+                    r = 0.0;
+                    s = s1;
+                } else if r > dang - 1e-7 {
+                    r = dang;
+                    s = (e0 - e2) / (d1 * d1 + d2 * d2).sqrt();
+                } else {
+                    s = (s1 * s1 + s2 * s2).sqrt();
+                }
+
+                if s > smax {
+                    smax = s;
+                    imax = i;
+                    rmax = r;
+                }
+            }
+
+            if AF[imax] == 1.0 && rmax == 0.0 {
+                rmax = dang;
+            } else if AF[imax] == 1.0 && rmax == dang {
+                rmax = 0.0;
+            } else if AF[imax] == 1.0 {
+                rmax = FRAC_PI_4 - rmax;
+            }
+
+            //Code used by Tarboton to calculate the angle Rg. This should give the same
+            //result despite the rearranged table
+            // double rg = NO_FLOW;
+            // if(nmax!=-1)
+            //   rg = (AF[nmax]*rmax+ac[nmax]*M_PI/2);
+
+            if rmax == 0.0 {
+                ps[imax] = 1.0;
+                *recs = 1;
+            } else if rmax == dang {
+                ps[nwrap(imax + 1)] = 1.0;
+                *recs = 1;
             } else {
-                s = (s1 * s1 + s2 * s2).sqrt();
+                ps[imax] = rmax / FRAC_PI_4;
+                ps[nwrap(imax + 1)] = 1.0 - rmax / FRAC_PI_4;
+                *recs = 2;
             }
-
-            if s > smax {
-                println!("found a steeper cell! {s}, {i}, {r}");
-                smax = s;
-                imax = i;
-                rmax = r;
-            }
-        }
-
-        if AF[imax] == 1.0 && rmax == 0.0 {
-            rmax = dang;
-        } else if AF[imax] == 1.0 && rmax == dang {
-            rmax = 0.0;
-        } else if AF[imax] == 1.0 {
-            rmax = FRAC_PI_4 - rmax;
-        }
-
-        //Code used by Tarboton to calculate the angle Rg. This should give the same
-        //result despite the rearranged table
-        // double rg = NO_FLOW;
-        // if(nmax!=-1)
-        //   rg = (AF[nmax]*rmax+ac[nmax]*M_PI/2);
-
-        if rmax == 0.0 {
-            ps[imax] = 1.0;
-            *recs = 1;
-        } else if rmax == dang {
-            ps[nwrap(imax + 1)] = 1.0;
-            *recs = 1;
-        } else {
-            ps[imax] = rmax / FRAC_PI_4;
-            ps[nwrap(imax + 1)] = 1.0 - rmax / FRAC_PI_4;
-            *recs = 2;
-        }
-    });
+        });
 }
 
-pub fn compute_donors_mflow(
-    meta: &GridMeta,
-    flows: &[[f64;8]],
-    donor: &mut [[usize; 8]],
-) {
-    donor.par_iter_mut().enumerate().for_each(|(i, don)|{
-        let (x,y) = meta.i_to_xy(i);
+pub fn compute_donors_mflow(meta: &GridMeta, flows: &[[f64; 8]], donor: &mut [[usize; 8]]) {
+    donor.par_iter_mut().enumerate().for_each(|(i, don)| {
+        let (x, y) = meta.i_to_xy(i);
         for n in 0..8 {
-            if !meta.in_grid(x as isize+XSHIFT[n], y as isize+YSHIFT[n]) {
+            if !meta.in_grid(x as isize + XSHIFT[n], y as isize + YSHIFT[n]) {
                 continue;
             }
-            let i_rec = (i as isize+meta.nshift[n]) as usize;
+            let i_rec = (i as isize + meta.nshift[n]) as usize;
             // 1 2 3  0->4 1->5 2->6 3->7
             // 0 x 4  4->0 5->1 6->2 7->3
             // 7 6 5  so +4%7
-            if flows[i_rec][(n+4)%8] != NO_FLOW_GEN {
+            if flows[i_rec][(n + 4) % 8] != NO_FLOW_GEN {
                 don[n] = i_rec;
             }
         }
@@ -157,7 +155,7 @@ pub fn generate_order_mflow(
     stack: &mut [usize],
 ) -> Vec<usize> {
     let mut nstack = 0;
-    let mut levels = Vec::with_capacity(meta.width*2+meta.height*2);
+    let mut levels = Vec::with_capacity(meta.width * 2 + meta.height * 2);
 
     // The first level starts at zero
     levels.push(0);
@@ -205,13 +203,13 @@ pub unsafe fn accum_mflow(
     levels: &[usize],
     stack: &[usize],
     donor: &[[usize; 8]],
-    flows: &[[f64;8]],
+    flows: &[[f64; 8]],
     accum: &mut [f64],
 ) {
     accum.fill(params.cell_area);
 
     let acc = Bazooka(accum.as_mut_ptr());
-    let acc_ref= &acc;
+    let acc_ref = &acc;
 
     for level in levels
         .windows(2)
@@ -223,156 +221,26 @@ pub unsafe fn accum_mflow(
         // ∀c∈level:don[c]∉level∧rec[c]∉level That is: we can safely mutate the
         // current cell, while reading its donors and receivers. Those are on
         // other levels.
-        level.iter().for_each(|c| unsafe {
+        level.par_iter().for_each(|c| unsafe {
             let mut sum = acc_ref.0.add(*c).read();
             for k in 0..8 {
                 let n = donor[*c][k as usize];
                 if n == 0 {
                     continue;
                 }
-                sum += acc_ref.0.add(n).read() * flows[n][(k as usize+4)%8];
+                sum += acc_ref.0.add(n).read() * flows[n][(k as usize + 4) % 8];
             }
             *acc_ref.0.add(*c) = sum;
         });
     }
 }
 
-
-pub fn accum(
-    params: &Params,
-    order: &Order,
-    accum: &mut [f64],
-) -> Result<()> {
-    accum.fill(params.cell_area);
-
-    order.for_lvls_rev(0..order.n_levels()-2, accum, |v| {
-        let sum = v.cell();
-        for (val, factor) in v.donors() {
-            *sum += val * factor;
-        }
-    })
-}
-
-
-pub struct LevelAccessor<'a, T: Send + Sync> {
-    arr: &'a Bazooka<T>,
-    idx: usize,
-    meta: &'a GridMeta,
-    flows: &'a [[f64;8]],
-}
-
-impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
-    pub fn cell(&self) -> &mut T {
-        unsafe {self.arr.0.add(self.idx).as_mut().unwrap()}
-    }
-
-    pub fn receivers(&self) -> [(f64,T);8] {
-        let mut res = [(NO_FLOW_GEN, T::zero());8];
-        for (n,flow) in self.flows[self.idx].iter().enumerate() {
-            if *flow != NO_FLOW_GEN {
-                unsafe {
-                res[n] = (*flow, self.arr.0.offset(self.idx as isize+self.meta.nshift[n]).read())
-                }
-            }
-        }
-        res
-    }
-
-    pub fn donors(&self) -> [(f64,T);8] {
-        let mut res = [(NO_FLOW_GEN, T::zero());8];
-        for n in 0..8 {
-            let offset = self.idx as isize + self.meta.nshift[n];
-            let flow = self.flows[offset as usize][(n+4)%8];
-            if flow != NO_FLOW_GEN {
-                unsafe {
-                    res[n] = (flow, self.arr.0.offset(offset).read())
-                }
-            }
-        }
-        res
-    }
-}
-
-pub struct Order {
-    meta: GridMeta,
-    flows: Vec<[f64;8]>,
-    stack: Vec<usize>,
-    levels: Vec<usize>,
-}
-
-pub enum Metrics {
-    Dinf
-}
-
-impl Order {
-    pub fn n_levels(&self) -> usize {
-        self.levels.len()
-    }
-
-    pub fn from_dem_metric(meta: GridMeta, dem: &[f64], metric: Metrics) -> Result<Self> {
-        let fm = match metric {
-            Metrics::Dinf => fm_dinf
-        };
-        unsafe {
-            Self::from_dem_fn(meta, dem, fm)
-        }
-    }
-
-    pub unsafe fn from_dem_fn<F: Fn(&GridMeta, &[f64], &mut [[f64; 8]], &mut [u8])>(meta: GridMeta, dem: &[f64], metric: F) -> Result<Self> {
-        if meta.size != dem.len() {
-            return Err(anyhow!("meta dem mismatch"));
-        }
-        let mut flows = vec![[0.0;8];meta.size];
-        let mut nrec = vec![0;meta.size];
-        metric(&meta, dem, &mut flows, &mut nrec);
-        let donor = vec![[0;8];meta.size];
-        // actually it would also make sense to return stack, but it normally always has the same size as the grid if there are no nodata cells
-        let mut stack = vec![0;meta.size];
-        let levels = generate_order_mflow(&meta, &mut nrec, &donor, &mut stack);
-        Ok(Self {
-            meta,
-            flows,
-            stack,
-            levels,
-        })
-    }
-
-    pub fn for_lvls<T: Zero + Copy + Send + Sync, F: Fn(LevelAccessor<T>) + Sync>(&self, r: Range<usize>, f: F, data: &mut [T]) -> Result<()> {
-        if r.end >= self.levels.len() {return Err(anyhow!("Range {r:?} exceeds number of levels {}", self.levels.len()))}
-        let b = Bazooka(data.as_mut_ptr());
-        for level in self.levels
-        .windows(2)
-        .take(r.end)
-        .skip(r.start)
-        .map(|w| &self.stack[w[0]..w[1]])
-        {
-            level.into_par_iter().for_each(|v| f(LevelAccessor { arr: &b, idx: *v, meta: &self.meta, flows: &self.flows }));
-        }
-        Ok(())
-    }
-
-    pub fn for_lvls_rev<T: Zero + Copy + Send + Sync, F: Fn(LevelAccessor<T>) + Sync>(&self, r: Range<usize>, data: &mut [T], f: F) -> Result<()> {
-        if r.end >= self.levels.len() {return Err(anyhow!("Range {r:?} exceeds number of levels {}", self.levels.len()))}
-        let b = Bazooka(data.as_mut_ptr());
-        for level in self.levels
-        .windows(2)
-        .take(r.end)
-        .skip(r.start)
-        .rev()
-        .map(|w| &self.stack[w[0]..w[1]])
-        {
-            level.into_par_iter().for_each(|v| f(LevelAccessor { arr: &b, idx: *v, meta: &self.meta, flows: &self.flows }));
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
 
     #[rustfmt::skip]
-    mod consts {
+    pub(crate) mod consts {
     pub const _H_2:[f64;4] = [
         0.0,1.0,
         2.0,3.0
@@ -466,9 +334,9 @@ mod test {
     #[test]
     fn test_dinf_3() {
         let meta = &GridMeta::new(3, 3);
-        let mut props = vec![[0.0;8];meta.size];
-        let mut recs = vec![2;meta.size];
-        
+        let mut props = vec![[0.0; 8]; meta.size];
+        let mut recs = vec![2; meta.size];
+
         fm_dinf(&meta, &consts::H_3, &mut props, &mut recs);
         for x in 1..2 {
             for y in 1..2 {
@@ -477,32 +345,23 @@ mod test {
                 assert_eq!(props[i], consts::DINF_3);
             }
         }
-        assert_eq!(recs, &[
-            0,0,0,
-            0,2,0,
-            0,0,0,
-        ])
+        assert_eq!(recs, &[0, 0, 0, 0, 2, 0, 0, 0, 0,])
     }
 
     #[test]
     fn test_dinf_4() {
         let meta = &GridMeta::new(4, 4);
-        let mut props = vec![[0.0;8];meta.size];
-        let mut nrec = vec![2;meta.size];
+        let mut props = vec![[0.0; 8]; meta.size];
+        let mut nrec = vec![2; meta.size];
         fm_dinf(&meta, &consts::H_4, &mut props, &mut nrec);
-        for x in 1..meta.width-1 {
-            for y in 1..meta.height-1 {
+        for x in 1..meta.width - 1 {
+            for y in 1..meta.height - 1 {
                 println!("({x},{y})");
                 let i = meta.xy_to_i(x, y);
                 assert_eq!(props[i], consts::DINF_3);
             }
         }
-        assert_eq!(nrec, &[
-            0,0,0,0,
-            0,2,2,0,
-            0,2,2,0,
-            0,0,0,0,
-        ])
+        assert_eq!(nrec, &[0, 0, 0, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 0, 0, 0,])
     }
 
     #[test]
@@ -534,30 +393,6 @@ mod test {
         assert_eq!(&levels, &[0,8,9]);
         let mut acc = [0.0;9];
         unsafe {accum_mflow(&Params::default(), &levels, &stack, &donor, &flows, &mut acc);}
-        assert_eq!(&acc, &[
-            1.590334470601733, 1.40966552939826695, 1.0,
-            1.0, 1.0, 1.0,
-            1.0, 1.0, 1.0
-        ]);
-    }
-
-
-    #[test]
-    #[rustfmt::skip]
-    fn test_order_3() {
-        let meta = GridMeta::new(3, 3);
-        let order = Order::from_dem_metric(meta, &consts::H_3, Metrics::Dinf).unwrap();
-        assert_eq!(order.flows, vec![
-            [0.0;8],[0.0;8],[0.0;8],
-            [0.0;8],[0.0,0.590334470601733,0.40966552939826695,0.0,0.0, 0.0, 0.0, 0.0],[0.0;8],
-            [0.0;8],[0.0;8],[0.0;8],
-        ]);
-        assert_eq!(&order.stack, &[
-            0,1,2,3,5,6,7,8,4
-        ]);
-        assert_eq!(&order.levels, &[0,8,9]);
-        let mut acc = [0.0;9];
-        accum(&Params::default(), &order, &mut acc).unwrap();
         assert_eq!(&acc, &[
             1.590334470601733, 1.40966552939826695, 1.0,
             1.0, 1.0, 1.0,

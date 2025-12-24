@@ -3,10 +3,6 @@ name = "oxscape"
 version = "0.1.0"
 edition = "2024"
 
-[lib]
-name = "oxscape"
-path = "src/main.rs"
-
 [dependencies]
 anyhow = "1.0.100"
 num-traits = "0.2.19"
