@@ -36,8 +36,7 @@ const DY_E2: [isize; 8] = [-1, -1, -1, -1, 1, 1, 1, 1];
 const DX_E2: [isize; 8] = [-1, -1, 1, 1, 1, 1, -1, -1];
 const AC: [f64; 8] = [2.0, 1.0, 1.0, 0.0, 4.0, 3.0, 3.0, 2.0];
 const AF: [f64; 8] = [-1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0];
-const NO_FLOW_GEN: f64 = -1.0;
-const HAS_FLOW_GEN: f64 = 0.0;
+const NO_FLOW_GEN: f64 = 0.0;
 
 const fn nwrap(n: usize) -> usize {
     if n == 8 { 0 } else { n }
@@ -238,6 +237,23 @@ pub unsafe fn accum_mflow(
     }
 }
 
+
+pub fn accum(
+    params: &Params,
+    order: &Order,
+    accum: &mut [f64],
+) -> Result<()> {
+    accum.fill(params.cell_area);
+
+    order.for_lvls_rev(0..order.n_levels()-2, accum, |v| {
+        let sum = v.cell();
+        for (val, factor) in v.donors() {
+            *sum += val * factor;
+        }
+    })
+}
+
+
 pub struct LevelAccessor<'a, T: Send + Sync> {
     arr: &'a Bazooka<T>,
     idx: usize,
@@ -289,6 +305,10 @@ pub enum Metrics {
 }
 
 impl Order {
+    pub fn n_levels(&self) -> usize {
+        self.levels.len()
+    }
+
     pub fn from_dem_metric(meta: GridMeta, dem: &[f64], metric: Metrics) -> Result<Self> {
         let fm = match metric {
             Metrics::Dinf => fm_dinf
@@ -331,7 +351,7 @@ impl Order {
         Ok(())
     }
 
-    pub fn for_lvls_rev<T: Zero + Copy + Send + Sync, F: Fn(LevelAccessor<T>) + Sync>(&self, r: Range<usize>, f: F, data: &mut [T]) -> Result<()> {
+    pub fn for_lvls_rev<T: Zero + Copy + Send + Sync, F: Fn(LevelAccessor<T>) + Sync>(&self, r: Range<usize>, data: &mut [T], f: F) -> Result<()> {
         if r.end >= self.levels.len() {return Err(anyhow!("Range {r:?} exceeds number of levels {}", self.levels.len()))}
         let b = Bazooka(data.as_mut_ptr());
         for level in self.levels
@@ -514,6 +534,30 @@ mod test {
         assert_eq!(&levels, &[0,8,9]);
         let mut acc = [0.0;9];
         unsafe {accum_mflow(&Params::default(), &levels, &stack, &donor, &flows, &mut acc);}
+        assert_eq!(&acc, &[
+            1.590334470601733, 1.40966552939826695, 1.0,
+            1.0, 1.0, 1.0,
+            1.0, 1.0, 1.0
+        ]);
+    }
+
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_order_3() {
+        let meta = GridMeta::new(3, 3);
+        let order = Order::from_dem_metric(meta, &consts::H_3, Metrics::Dinf).unwrap();
+        assert_eq!(order.flows, vec![
+            [-1.0;8],[-1.0;8],[-1.0;8],
+            [-1.0;8],[-1.0,0.590334470601733,0.40966552939826695,-1.0,-1.0, -1.0, -1.0, -1.0],[-1.0;8],
+            [-1.0;8],[-1.0;8],[-1.0;8],
+        ]);
+        assert_eq!(&order.stack, &[
+            0,1,2,3,5,6,7,8,4
+        ]);
+        assert_eq!(&order.levels, &[0,8,9]);
+        let mut acc = [0.0;9];
+        accum(&Params::default(), &order, &mut acc).unwrap();
         assert_eq!(&acc, &[
             1.590334470601733, 1.40966552939826695, 1.0,
             1.0, 1.0, 1.0,
