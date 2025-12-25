@@ -1,13 +1,12 @@
 mod order;
 pub use order::*;
 
-use anyhow::{Error, Result};
+use anyhow::Result;
 use rayon::prelude::*;
 use std::env;
 use std::f64::consts::SQRT_2;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::vec::Vec;
 
 pub mod mflow;
 

@@ -6,9 +6,10 @@ use num_traits::Zero;
 use rayon::prelude::*;
 
 pub fn accum(params: &Params, order: &Order, accum: &mut [f64]) {
+    // initialize to cell area
     accum.fill(params.cell_area);
 
-    order.for_lvls_rev(accum, |v| {
+    order.for_lvls_top_down(accum, |v| {
         let mut sum = *v.cell();
         for (val, factor) in v.donors() {
             sum += val * factor;
@@ -25,7 +26,7 @@ pub struct LevelAccessor<'a, T: Send + Sync> {
 }
 
 impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
-    pub fn cell(&self) -> &mut T {
+    pub fn cell(&mut self) -> &mut T {
         unsafe { self.arr.0.add(self.idx).as_mut().unwrap() }
     }
 
@@ -114,7 +115,7 @@ impl Order {
         })
     }
 
-    pub fn for_lvls<T: Zero + Copy + Send + Sync, F: Fn(LevelAccessor<T>) + Sync>(
+    pub fn for_lvls_bottom_up<T: Zero + Copy + Send + Sync, F: Fn(&mut LevelAccessor<T>) + Sync>(
         &self,
         data: &mut [T],
         f: F,
@@ -122,7 +123,7 @@ impl Order {
         let b = Bazooka(data.as_mut_ptr());
         for level in self.levels.windows(2).map(|w| &self.stack[w[0]..w[1]]) {
             level.into_par_iter().for_each(|v| {
-                f(LevelAccessor {
+                f(&mut LevelAccessor {
                     arr: &b,
                     idx: *v,
                     meta: &self.meta,
@@ -132,7 +133,7 @@ impl Order {
         }
     }
 
-    pub fn for_lvls_rev<T: Zero + Copy + Send + Sync, F: Fn(LevelAccessor<T>) + Sync>(
+    pub fn for_lvls_top_down<T: Zero + Copy + Send + Sync, F: Fn(&mut LevelAccessor<T>) + Sync>(
         &self,
         data: &mut [T],
         f: F,
@@ -145,7 +146,7 @@ impl Order {
             .map(|w| &self.stack[w[0]..w[1]])
         {
             level.into_par_iter().for_each(|v| {
-                f(LevelAccessor {
+                f(&mut LevelAccessor {
                     arr: &b,
                     idx: *v,
                     meta: &self.meta,
@@ -171,13 +172,13 @@ mod test {
         };
         assert_eq!(o.n_levels(), 1);
         let mut data = [0, 1, 2, 3];
-        o.for_lvls(&mut data, |a| {
+        o.for_lvls_bottom_up(&mut data, |a| {
             assert_eq!(a.donors(), [(0.0, 0); 8]);
             assert_eq!(a.receivers(), [(0.0, 0); 8]);
             *a.cell() += 1;
         });
         assert_eq!(data, [1, 2, 3, 4]);
-        o.for_lvls_rev(&mut data, |a| {
+        o.for_lvls_top_down(&mut data, |a| {
             assert_eq!(a.donors(), [(0.0, 0); 8]);
             assert_eq!(a.receivers(), [(0.0, 0); 8]);
             *a.cell() += 1;
@@ -214,7 +215,7 @@ mod test {
         assert_eq!(o.n_levels(), 2);
 
         // in this context, this is unsafe, because we have "unsound" order
-        o.for_lvls(&mut data, |a| {
+        o.for_lvls_bottom_up(&mut data, |a| {
             println!("recv: {:?}, don: {:?}", a.receivers(), a.donors());
             assert_eq!(a.receivers(), a.donors());
             for (fact, val) in a.receivers() {
@@ -224,7 +225,7 @@ mod test {
             }
         });
         assert_eq!(data, [1, 2, 5, 8]);
-        o.for_lvls_rev(&mut data, |a| {
+        o.for_lvls_top_down(&mut data, |a| {
             println!("recv: {:?}, don: {:?}", a.receivers(), a.donors());
             assert_eq!(a.receivers(), a.donors());
             for (fact, val) in a.receivers() {

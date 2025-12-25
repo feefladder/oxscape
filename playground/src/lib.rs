@@ -1,13 +1,13 @@
 use rayon::prelude::*;
-use std::cell::UnsafeCell; // 1.11.0
 
-struct Bazooka(UnsafeCell<*mut i32>);
+struct Bazooka(*mut i32);
 
 unsafe impl Sync for Bazooka {}
 
 /// SAFETY: It is your responsibility to ensure:
 /// - level indices don't overlap
 /// - allowed_indices point OUTSIDE the level
+/// 
 /// In code:
 /// ```
 /// # use std::collections::HashSet;
@@ -16,24 +16,24 @@ unsafe impl Sync for Bazooka {}
 /// let levels = vec![0,2,4];
 /// let allowed_indices = [1,0,3,2];
 /// for level in levels.windows(2).map(|w| &stack[w[0]..w[1]]) {
-///     // level inidces don't overlap, and allowed_indices point OUTSIDE the level
+///     // level inidces don't overlap
 ///     let mut set = HashSet::with_capacity(level.len());
 ///     for idx in level {
 ///         assert!(set.insert(*idx));
 ///     }
+///     // allowed_indices point OUTSIDE the level
 ///     for idx in level {
 ///         assert!(!set.contains(&allowed_indices[*idx]));
 ///     }
 /// }
 /// ```
 pub unsafe fn do_stuff(arr: &mut [i32], levels: &[usize], stack: &[isize], allowed_indices: &[isize]) {
-    let ptr = Bazooka(UnsafeCell::new(arr.as_mut_ptr()));
+    let ptr = Bazooka(arr.as_mut_ptr());
     let r = &ptr;
     for level in levels.windows(2).map(|w| &stack[w[0]..w[1]]) {
         level.into_iter().for_each(|idx| unsafe {
-            let p = *r.0.get();
-            let val = p.offset(allowed_indices[*idx as usize]).read();
-            *p.offset(*idx) += val;
+            let val = r.0.offset(allowed_indices[*idx as usize]).read();
+            *r.0.offset(*idx) += val;
         });
     }
 }
@@ -102,13 +102,23 @@ fn test_rayon() {
 
 #[test]
 #[ignore]
+#[rustfmt::skip]
 fn test_datarace() {
-    let mut arr = [0,1,2,3];
-    let stack = [0,2,1,3];
+    let mut arr = [
+        0,1,
+        2,3
+    ];
+    let stack = [
+        0,2,
+        1,3
+    ];
     let levels = [0,2,4];
 
-    // this here is a datarace: 0 -> 2 but 2 is in level 0
-    let allowed_indices = [2,0,3,2];
+    // this here is a datarace: 0 -> 2 but 2 is in level [0,2]
+    let allowed_indices = [
+        2,0,
+        3,2
+    ];
     unsafe {
         do_stuff(&mut arr, &levels, &stack, &allowed_indices);
     }

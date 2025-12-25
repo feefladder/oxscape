@@ -46,34 +46,228 @@
 
 \tableofcontents
 
-
-
 \section{Introduction}
 
 This essay evolved as a result of trying to run LISEM/OpenLisem on a Linux
 system.  Since the recommended manager, MSYS is not available for linux,
-dependencies had to be manually collected. The compilation process stranded for
+dependencies had to be manually collected. The compilation initially process stranded for
 OpenLisem because it depended on a specific commit in a specific branch of QWT
-and LISEM similarly depended on a multitude of other softwares. Even though no
-successful compilation of either OpenLisem or LISEM was achieved due to their
-complexity, I will make some comments with regards to how compilation could have
-been easier in section \ref{subs:deps}.
+and LISEM similarly depended on a multitude of other softwares.
 
-Apart from these comments, I will also propose a workflow for developing erosion
+The issues with Openlisem were eventually resolved and it is successfully
+building in Docker and Github Actions. The interested reader is referred to \ref{subs:deps}. However, the process highlighted further
+challenges: Tight coupling between scientific models, (parallel) optimizations,
+graphical user interfaces and platform-specific build systems hinders
+modification and re-use of erosion models.
+
+ I will also propose a workflow for developing erosion
 models that should increase maintainability, portability and verifiability of
 new or existing codebases. To reify this workflow, I adopted it to port a sample
-program \cite{barnesAcceleratingFluvialIncision2019} to Rust. Code is available
-on \href{}{Codeberg} and \href{}{Github}.
+program \cite{barnesAcceleratingFluvialIncision2019} to Rust.
+
+Erosion models are complex by themselves. This complexity is exacerbated when
+implementation of the conceptual model is mixed with graphical interface or
+parallel implementation. In \cite{barnesAcceleratingFluvialIncision2019}, Barnes
+describes a parallel implementation of a landscape evolution model, written in
+C++. The conceptual model is a simple stream power law:
+
+\begin{align}
+    \frac{\partial h}{\partial t} &= -KA^m\left(\frac{\partial h}{\partial x}\right)^n
+\end{align}
+
+where $h$ is the landscape height, $A$ is the flow accumulation and $K$, $m$ and
+$n$ are constants. The implementation of the implicit Euler method with
+Newton-Rhapson iterations costs only \href{https://github.com/r-barnes/Barnes2019-Landscape/blob/2274e4639ab2299701d306fe42f24380a7845795/fastscape_RB%2BP.cpp#L313}{a few lines} of code \cite{barnesAcceleratingFluvialIncision2019}:
+
+\begin{minted}{cpp}
+// Parallel erosion kernel (Barnes, 2019)
+void Erode(){
+  //The cells in each level can be processed in parallel, so we loop over
+  //levels starting from the lower-most (the one closest to the NO_FLOW cells)
+
+  //Level 0 contains all those cells which do not flow anywhere, so we skip it
+  //since their elevations will not be changed via erosion anyway.
+  for(int li=1;li<nlevel-1;li++){
+    const int lvlstart = levels[li];      //Starting index of level in stack
+    const int lvlend   = levels[li+1];    //Ending index of level in stack
+    const int lvlsize  = lvlend-lvlstart; //Number of cells in the level
+
+    //It's only worth parallelizing if there are enough cells in the level.
+    //For small levels it is more efficient to run the code in serial. The if-
+    //clause in the OpenMP directive below can be adjusted to a suitable value
+    //to account for this.
+    #pragma omp parallel for if(lvlsize>500)
+    for(int si=lvlstart;si<lvlend;si++){
+      const int c = stack[si];         //Cell from which flow originates
+      if(rec[c]==NO_FLOW)              //Ignore cells with no receiving neighbour
+        continue;
+      const int n = c+nshift[rec[c]];  //Cell receiving the flow
+
+      const double length = dr[rec[c]];
+      //`fact` contains a set of values which are constant throughout the integration
+      const double fact   = keq*dt*std::pow(accum[c],meq)/std::pow(length,neq);
+      const double h0     = h[c];      //Elevation of focal cell
+      const double hn     = h[n];      //Elevation of neighbouring (receiving, lower) cell
+      double hnew         = h0;        //Current updated value of focal cell
+      double hp           = h0;        //Previous updated value of focal cell
+      double diff         = 2*tol;     //Difference between current and previous updated values
+      while(std::abs(diff)>tol){       //Newton-Rhapson method (run until subsequent values differ by less than a tolerance, which can be set to any desired precision)
+        hnew -= (hnew-h0+fact*std::pow(hnew-hn,neq))/(1.+fact*neq*std::pow(hnew-hn,neq-1));
+        diff  = hnew - hp;             //Difference between previous and current value of the iteration
+        hp    = hnew;                  //Update previous value to new value
+      }
+      h[c] = hnew;                     //Update value in array
+    }
+  }
+}
+\end{minted}
+
+Note the \mintinline{cpp}|#pragma omp parallel for| directive. This implies
+parallel execution: Multiple threads process the array in parallel. Since data
+is both read from (\mintinline{cpp}|hn=h[n]|) and  written to the array
+(\mintinline{cpp}|h[c]=hnew|), there is the possibility of a data race: If both
+the cell (\mintinline{cpp}|h[c]|) and its receiver (\mintinline{cpp}|h[n]|) are
+in the same level, the receiver will be both updated and read from different
+threads. The algorithms presented by Barnes
+(\cite{barnesAcceleratingFluvialIncision2019}) ensure disjointness. In
+code\footnote{In MathSpeak, it would be: Let $L[n]$ contain all cells of a
+level, $R[c]$ a cell's receivers and $D[c]$ it's donors. Then, $\forall n\forall
+c_{\in L[n]}:c\neq c\land R[c]\not\in L[n]\land D[c]\not\in L[n]$. Actually, the
+guarantee is even stronger for correctness: $\forall n\forall c_{\in L[n]}: R[c]\in
+L[n-1]\land D[c]\in L[n+1]$, but this is not required for memory safety. To be
+also mathematically correct, define $L[-1]:=\{\emptyset\}$ and $L[N+1]:=\{\emptyset\}$
+where $N$ is the highest level.} (Rust) This is invariant is expressed as:
+\begin{minted}{rust}
+// Parallelism invariant
+// example data
+let mut arr = vec![
+    0,1,
+    2,3
+];
+let stack = vec![
+    0,2, // the first level
+    1,3  // the second level
+];
+let levels = vec![0,2,4]; // first stack[0..2], then stack[2..4]
+// these are receivers of the current cell
+let allowed_indices = [
+    1,0, // cell 0 looks at cell 1, cell 1 looks at 0
+    3,2  // 2->3 and 3->2
+];
+for level in levels.windows(2).map(|w| &stack[w[0]..w[1]]) {
+    // create a set to check duplicates
+    let mut set = HashSet::with_capacity(level.len());
+    // level indices don't overlap
+    for idx in level {
+        assert!(set.insert(*idx));
+    }
+    // allowed_indices point OUTSIDE the level
+    for idx in level {
+        assert!(!set.contains(&allowed_indices[*idx]));
+    }
+}
+\end{minted}
+
+It is up to the programmer to ensure this is upheld at any time. Once it is
+broken, that causes a data race. Data races are Undefined Behaviour, which -with
+modern compilers- allow basically anything to
+happen\cite{chenUndefinedBehaviorCan2014,regehrGuideUndefinedBehavior2010}. While such constraints can be reasoned about informally, maintaining them across
+code changes, parallelization, and optimization places a significant cognitive
+burden on the programmer. This observation motivated a development approach that
+prioritizes making such assumptions explicit and mechanically checked during
+implementation. Ideally, this burden should not be placed on erosion
+model developers at all, but encapsulated in reusable and verifiable
+infrastructure. Therefore, I will share a methodology prioritizes making such assumptions explicit and mechanically checked during implementation.
+
+\section{Methods}
+
+This text is a narrative of implementation rather than a survey or a formal methodological contribution. The focus is on process: identifying a compact but non-trivial parallel erosion model, establishing correctness through small unit tests, porting the code to Rust with minimal semantic changes, and then incrementally reintroducing parallelism and generalizing the algorithm. The intention is that readers can follow the same steps when adapting existing scientific codebases, rather than treating the final Rust implementation as a black box.
+
+\subsection{Step 1: porting the sequential algorithm with unit tests}
+
+The first step in porting \cite{barnesAcceleratingFluvialIncision2019}, was writing \textit{unit tests}. Somewhat intentionally, the parallelism invariant from earlier is a minimal example of a \textit{unit test}. The concept will be shortly explained.
+
+When programming algorithms, I always use a pen and paper to work through some
+very simple examples. In a unit test, you let the computer work through the same
+examples. When changing code - for example to make it run faster - you can run
+them to see if anything changed. This is how I work with them:
+
+\begin{itemize}
+    \item If they fail, there was a bug somewhere: fix it and run again.
+    \item If they pass, your change didn't have any bugs.
+    \item If they pass and there was a bug, you did not have enough unit tests: add one.
+    \item If they fail and there was no bug, you've changed the algorithm: update tests accordingly.
+\end{itemize}
+
+In Test-driven development, the idea is to write unit tests before writing any
+code. I'm ambivalent to that: I think it's often fine to write code I know is
+correct, write a unit test and copy over the failed output into the
+\mintinline{rust}|assert_eq!(output, expected)| statement.
+
+This was the workflow for the rust code. Once a large enough portion was written and tested in rust, I added GTest to the C++ serial implementation with the exact same values. Matching the random number generator between C++ and Rust proved difficult, so a much simpler terrain generation: Increasing the height with array index was implemented. For unit tests this is fine: They are meant to be predictable and test program, rather than model accuracy. In general, I propose the following workflow:
 
 \begin{enumerate}
     \item Make the algorithm work
     \item Test it on a small (2x2 to 10x10) grid, make those unit tests
     \item verify the tests by hand
-    \item Mark this implementation on a separate git branch
+    \item (optional) Mark this implementation on a separate git branch
     \item Make it run fast, keeping the same tests
 \end{enumerate}
 
-Then, when changing unit tests, 
+Finally, the port was verified to work, because the same exact values\footnote{Actually  testing exact float equality is overly strict, but it worked.} were used in both Rust and C++ tests. Additionally, unit tests can serve as rudimentary documentation both for external users and for developers when returning to the code after changes or refactoring.
+
+\subsection{Step 2: Adding parallelism}
+
+The main contribution of \cite{barnesAcceleratingFluvialIncision2019} was parallelism, which was not implemented yet. In C++ data-parallel code is run using OpenMP precompiler directives, as seen before. In Rust, this is generally done with \href{https://github.com/rayon-rs/rayon}{rayon}. Benchmarks suggest it provides performance competitive with but slightly below to OpenMP or Fortran code\cite{martinsNPBRustNASParallel2025}. In exchange, however, Rust and rayon provide strong memory safety guarantees, reducing the cognitive burden on a model developer.
+
+Thread safety remains a problem, however, since a programming language cannot change the hardware it runs on. Therefore, rust is overly strict in what it allows, such that the resulting program is certainly safe. For example, it is normally not allowed to simultaneously read and write data from the same array - such as the array of flow accumulation or height values: You are only allowed to simultaneously read from an array (multiple \mintinline{rust}|&arr|), or be the only one writing to it (single \mintinline{rust}|&mut arr|). This solves the problem of memory safety, but is overly strict in our case.
+
+Since we know what we're doing: We have a topological ordering of all indices, it is possible to relax these rules by invoking \textit{unsafe} rust. I visualize this as stepping down on the tower of weakenings (\cite{desiresTowerWeakeningsMemoryb}), where we gain flexibility at the cost of safety. All Rust code depends on Unsafe Rust. Unsafe code, however, is generally checked and exposed in a controlled way to eliminate Undefined Behaviour. Thus, the memory safety is a promise that can be relied upon in safe rust. We'll be writing unsafe rust so we'll have to uphold that promise: Using our code marked as safe there is no possible way to cause Undefined Behaviour.
+
+The first step is to make the serial code parallel, so we have to sidestep the compiler's guarantees. This results in the following implementation:
+
+\begin{minted}{rust}
+/// struct holding a mut pointer.
+/// It only exist so we can signal that it can be shared between threads
+/// (*mut i32) cannot be shared between threads
+struct Bazooka(*mut i32);
+
+/// here we say references can be shared between threads
+/// This is under the very strict guarantee that we won't misuse it
+unsafe impl Sync for Bazooka {}
+
+/// it is not safe to use this function:
+/// You need to ensure levels, stack and donors align
+/// so that reads and writes are disjoint
+pub unsafe fn accum(
+    arr: &mut [i32],
+    levels: &[usize],
+    stack: &[isize],
+    donors: &[isize]
+) {
+    let ptr = Bazooka(arr.as_mut_ptr());
+    // make a reference, so we only share the value by-reference
+    let r = &ptr;
+    // SAFETY: do NOT use `arr` inside this closure, only `r` Also
+    // ∀c∈level:don[c]∉level∧rec[c]∉level That is: we can safely mutate the
+    // current cell, while reading its donors and receivers. Those are on
+    // other levels.
+    for level in levels.windows(2).map(|w| &stack[w[0]..w[1]]) {
+        level.into_iter().for_each(|idx| unsafe { // note the `unsafe`
+            let val = r.0.offset(donors[*idx as usize]).read();
+            *r.0.offset(*idx) += val;
+        });
+    }
+}
+\end{minted}
+
+An interesting case is the donors array, 
+
+\subsection{Step 3: Defining an abstraction}
+
+Since graph traversal is paramount to erosion models, 
+
+
 
 \begin{figure}
     \includesvg[width=\textwidth]{img/catchment_blocks.svg}
@@ -81,7 +275,7 @@ Then, when changing unit tests,
     implementations are currently disconnected.}\label{fig:catchment}
 \end{figure}
 
-\subsection{OpenLisem Dependency management with Git}\label{subs:deps}
+\section{OpenLisem Dependency management with Git}\label{subs:deps}
 
 Git has three ways to add third-party repositories:
 \href{https://stackoverflow.com/questions/32407634/when-to-use-git-subtree}{Submodules

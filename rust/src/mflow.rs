@@ -1,8 +1,6 @@
-use anyhow::{Result, anyhow};
-use num_traits::{Float, Zero};
+use num_traits::Float;
 use rayon::prelude::*;
-use std::ops::Range;
-use std::{cell::UnsafeCell, f64::consts::FRAC_PI_4};
+use std::f64::consts::FRAC_PI_4;
 
 use crate::{Bazooka, GridMeta, Params, XSHIFT, YSHIFT};
 
@@ -34,7 +32,7 @@ const DX_E1: [isize; 8] = [-1, 0, 0, 1, 1, 0, 0, -1];
 // 7 6 5                    1   1   3   3  5   5  7  7
 const DY_E2: [isize; 8] = [-1, -1, -1, -1, 1, 1, 1, 1];
 const DX_E2: [isize; 8] = [-1, -1, 1, 1, 1, 1, -1, -1];
-const AC: [f64; 8] = [2.0, 1.0, 1.0, 0.0, 4.0, 3.0, 3.0, 2.0];
+// const AC: [f64; 8] = [2.0, 1.0, 1.0, 0.0, 4.0, 3.0, 3.0, 2.0];
 const AF: [f64; 8] = [-1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0];
 pub const NO_FLOW_GEN: f64 = 0.0;
 
@@ -52,7 +50,7 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
     let dang = d2.atan2(d1);
 
     flows
-        .par_iter_mut()
+        .iter_mut()
         .zip(nrec)
         .enumerate()
         .for_each(|(n, (ps, recs))| {
@@ -94,6 +92,11 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
                     imax = i;
                     rmax = r;
                 }
+            }
+
+            // Some problem; probably a NaN
+            if imax==9 {
+                return;
             }
 
             if AF[imax] == 1.0 && rmax == 0.0 {
@@ -362,6 +365,65 @@ pub(crate) mod test {
             }
         }
         assert_eq!(nrec, &[0, 0, 0, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 0, 0, 0,])
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_dinf_quad_nan() {
+        let meta = &GridMeta::new(3, 3);
+        let h = [
+            f64::NAN, 0.0, f64::NAN,
+            0.0, 1.0, 0.0,
+            f64::NAN, 0.0, f64::NAN,
+        ];
+        let mut flows = vec![[0.0;8];meta.size];
+        let mut nrec = vec![0;meta.size];
+        fm_dinf(&meta, &h, &mut flows, &mut nrec);
+        assert_eq!(flows, &[[0.0;8];9]);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_dinf_single_nan() {
+        let meta = &GridMeta::new(3, 3);
+        let h = [
+            f64::NAN, 0.0, 0.0,
+            0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0,
+        ];
+        let mut flows = vec![[0.0;8];meta.size];
+        let mut nrec = vec![0;meta.size];
+        fm_dinf(&meta, &h, &mut flows, &mut nrec);
+        assert_eq!(&flows[4], &[0.0;8]);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_dinf_double_nan() {
+        let meta = &GridMeta::new(3, 3);
+        let h = [
+            f64::NAN, 0.0, f64::NAN,
+            0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0,
+        ];
+        let mut flows = vec![[0.0;8];meta.size];
+        let mut nrec = vec![0;meta.size];
+        fm_dinf(&meta, &h, &mut flows, &mut nrec);
+        assert_eq!(&flows[4], &[0.0;8]);
+    }
+
+    #[test]
+    fn test_dinf_triple_nan() {
+        let meta = &GridMeta::new(3, 3);
+        let h = [
+            f64::NAN, 0.0, f64::NAN,
+            0.0, 1.0, 0.0,
+            0.0, 0.0, f64::NAN,
+        ];
+        let mut flows = vec![[0.0;8];meta.size];
+        let mut nrec = vec![0;meta.size];
+        fm_dinf(&meta, &h, &mut flows, &mut nrec);
+        assert_eq!(&flows[4], &[0.0;8]);
     }
 
     #[test]
