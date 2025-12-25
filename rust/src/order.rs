@@ -106,7 +106,8 @@ impl Order {
         let mut donor = vec![[0; 8]; meta.size];
         compute_donors_mflow(&meta, &flows, &mut donor);
         let mut stack = vec![0; meta.size];
-        let levels = generate_order_mflow(&meta, &mut nrec, &donor, &mut stack);
+        let mut levels = Vec::with_capacity(2*meta.width+2*meta.height);
+        generate_order_mflow(&meta, &mut nrec, &donor, &mut stack, &mut levels);
         Ok(Self {
             meta,
             flows,

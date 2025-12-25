@@ -156,9 +156,10 @@ pub fn generate_order_mflow(
     nrec: &mut [u8],
     donor: &[[usize; 8]],
     stack: &mut [usize],
-) -> Vec<usize> {
+    levels: &mut Vec<usize>
+) {
     let mut nstack = 0;
-    let mut levels = Vec::with_capacity(meta.width * 2 + meta.height * 2);
+    levels.clear();
 
     // The first level starts at zero
     levels.push(0);
@@ -198,7 +199,6 @@ pub fn generate_order_mflow(
         levels.push(nstack);
     }
     levels.pop();
-    levels
 }
 
 pub unsafe fn accum_mflow(
@@ -292,7 +292,8 @@ pub(crate) mod test {
             0,1,2,3,4,
         ];
         let mut s = vec![0;stack.len()];
-        let lvls = generate_order_mflow(&GridMeta::new(2, 2), &mut nrec, &donor, &mut s);
+        let mut lvls = Vec::with_capacity(5);
+        generate_order_mflow(&GridMeta::new(2, 2), &mut nrec, &donor, &mut s, &mut lvls);
         assert_eq!(lvls, levels);
         assert_eq!(s, stack);
         for l in 0..lvls.len()-1 {
@@ -326,7 +327,8 @@ pub(crate) mod test {
             0,1,2,4,5,7,8,9,
         ];
         let mut s = vec![0;stack.len()];
-        let lvls = generate_order_mflow(&GridMeta::new(3, 3), &mut nrec, &donor, &mut s);
+        let mut lvls = Vec::with_capacity(8);
+        generate_order_mflow(&GridMeta::new(3, 3), &mut nrec, &donor, &mut s, &mut lvls);
         assert_eq!(lvls, levels);
         assert_eq!(s, stack);
         for l in 0..lvls.len()-1 {
@@ -448,7 +450,8 @@ pub(crate) mod test {
             [0.0;8],[0.0;8],[0.0;8],
         ]);
         let mut stack = [0;9];
-        let levels = generate_order_mflow(&meta, &mut nrec, &donor, &mut stack);
+        let mut levels = Vec::with_capacity(3);
+        generate_order_mflow(&meta, &mut nrec, &donor, &mut stack, &mut levels);
         assert_eq!(&stack, &[
             0,1,2,3,5,6,7,8,4
         ]);
@@ -482,7 +485,8 @@ pub(crate) mod test {
 
         
         let mut stack = vec![0;meta.size];
-        let levels = generate_order_mflow(&meta, &mut nrec, &donor, &mut stack);
+        let mut levels = Vec::with_capacity(4);
+        generate_order_mflow(&meta, &mut nrec, &donor, &mut stack, &mut levels);
         assert_eq!(stack, &[
             0, 1, 2, 3, 4, 7, 8, 11, 12, 13, 14, 15, 5, 6, 9, 10
         ]);
