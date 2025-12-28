@@ -1,5 +1,6 @@
 mod order;
 pub use order::*;
+pub mod order_d8;
 
 use anyhow::Result;
 use rayon::prelude::*;
@@ -11,6 +12,7 @@ use std::io::{BufWriter, Write};
 pub mod mflow;
 
 pub const GIT_HASH: &str = env!("GIT_HASH");
+pub const NOT_A_DONOR: usize = usize::MAX;
 
 ///This is a quick-and-dirty, zero-dependency function for saving the outputs of
 ///the model in ArcGIS ASCII DEM format (aka Arc/Info ASCII Grid, AAIGrid).
@@ -126,8 +128,67 @@ impl GridMeta {
         self.size
     }
 
+    ///Offset from a focal cell's index to its neighbours in terms of flat indexing
+    ///
+    /// ```
+    /// # use oxscape::GridMeta;
+    /// # let x = 4;
+    /// # let meta = GridMeta::new(3,3);
+    /// let arr = [
+    ///  1,2,3,
+    ///  0,x,4,
+    ///  7,6,5
+    /// ];
+    /// for i in 0..8 {
+    ///     assert!(arr[(4 + meta.nshift()[i]) as usize] == i)
+    /// }
+    /// ```
     pub fn nshift(&self) -> &[isize; 8] {
         &self.nshift
+    }
+
+    ///Offset from a focal cell's index to its neighbours in terms of flat indexing
+    ///
+    /// ```
+    /// # use oxscape::GridMeta;
+    /// # let x = 4;
+    /// # let meta = GridMeta::new(3,3);
+    /// let arr = [
+    ///  1,2,3,
+    ///  0,x,4,
+    ///  7,6,5
+    /// ];
+    /// for i in 0..8 {
+    ///     assert!(arr[meta.shift(4,i)] == i)
+    /// }
+    #[inline]
+    pub fn shift(&self, idx: usize, dir: u8) -> usize {
+        (isize::try_from(idx).unwrap() + self.nshift[usize::from(dir)])
+            .try_into()
+            .unwrap()
+    }
+
+    /// Reverse the direction of nshift:
+    /// ```
+    /// # use oxscape::GridMeta;
+    /// # let x=4;
+    /// # let meta = GridMeta::new(3,3);
+    /// let arr = [
+    /// 1,2,3,
+    /// 0,x,4,
+    /// 7,6,5,
+    /// ];
+    /// for n in 0..8 {
+    ///   let rec_idx = (4+meta.nshift()[n]) as usize;
+    ///   let rec = arr[rec_idx];
+    ///   assert_eq!(rec, n);
+    ///   let _x = arr[(rec_idx as isize+meta.nshift()[GridMeta::rev(rec)]) as usize];
+    ///   assert_eq!(_x, x);
+    /// }
+    /// ```
+    #[inline]
+    pub const fn rev(n: usize) -> usize {
+        (n + 4) % 8
     }
 
     #[inline]
@@ -175,23 +236,28 @@ pub fn generate_boring_terrain(meta: &GridMeta, mut start: f64, delta: f64, h: &
 ///focal cell by the steepest gradient. If there is no local gradient, then
 ///the special value NO_FLOW is assigned.
 pub fn compute_receivers(meta: &GridMeta, h: &[f64], rec: &mut [i8]) {
-    for y in 2..meta.height - 2 {
-        for x in 2..meta.width - 2 {
-            let c: usize = y * meta.width + x;
+    rec.fill(NO_FLOW);
+    rec.par_chunks_exact_mut(meta.width)
+        .enumerate()
+        .take(meta.height - 2)
+        .skip(2)
+        .for_each(|(y, row)| {
+            for x in 2..meta.width - 2 {
+                let c: usize = y * meta.width + x;
 
-            let mut max_slope = 0.0;
-            let mut max_n = NO_FLOW;
+                let mut max_slope = 0.0;
+                let mut max_n = NO_FLOW;
 
-            for n in 0..8 {
-                let slope = (h[c] - h[(c as isize + meta.nshift[n]) as usize]) / DR[n];
-                if slope > max_slope {
-                    max_slope = slope;
-                    max_n = n as i8;
+                for n in 0..8 {
+                    let slope = (h[c] - h[(c as isize + meta.nshift[n]) as usize]) / DR[n];
+                    if slope > max_slope {
+                        max_slope = slope;
+                        max_n = n as i8;
+                    }
                 }
+                row[x] = max_n;
             }
-            rec[c] = max_n;
-        }
-    }
+        });
 }
 
 pub fn compute_donors(meta: &GridMeta, rec: &[i8], ndon: &mut [u8], donor: &mut [[usize; 8]]) {
@@ -272,12 +338,15 @@ pub fn add_uplift(meta: &GridMeta, params: &Params, h: &mut [f64]) {
     }
 }
 
-/// If you really want to ignore safety, use this
+/// (*mut T) cannot be shared between threads.
+/// This struct allows us to shoot it between threads
+/// Ensuring safe landing is our responsibility
 struct Bazooka<T: Send + Sync>(*mut T);
 
-// SAFETY:
-// use at your own risk. Avoid data races
-// In here, we only use it for accessing levels
+/// here we say references can be shared between threads
+/// This is under the very strict guarantee that we won't misuse it
+///
+/// SAFETY: We will only ever read from and write to disjoint indices within a parallel region
 unsafe impl<T: Send + Sync> Sync for Bazooka<T> {}
 
 pub unsafe fn compute_flow_acc(
@@ -528,6 +597,32 @@ mod test {
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     ];
+    }
+
+    #[test]
+    fn test_meta_nshift() {
+        let x = 4;
+        let meta = GridMeta::new(3, 3);
+        let arr = [1, 2, 3, 0, x, 4, 7, 6, 5];
+        for i in 0..8 {
+            let rec_idx = (4 + meta.nshift()[i]) as usize;
+            let rec = arr[rec_idx];
+            assert_eq!(rec, i);
+        }
+    }
+
+    #[test]
+    fn test_meta_rev() {
+        let x = 4;
+        let meta = GridMeta::new(3, 3);
+        let arr = [1, 2, 3, 0, x, 4, 7, 6, 5];
+        for n in 0..8 {
+            let rec_idx = (4 as isize + meta.nshift()[n]) as usize;
+            let rec = arr[rec_idx];
+            assert_eq!(rec, n);
+            let _x = arr[(rec_idx as isize + meta.nshift()[GridMeta::rev(rec)]) as usize];
+            assert_eq!(_x, x);
+        }
     }
 
     #[test]

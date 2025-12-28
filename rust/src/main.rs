@@ -6,13 +6,10 @@ use oxscape::{GIT_HASH, GridMeta, Params, generate_boring_terrain, print_dem, ru
 pub fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() != 5 {
-        eprintln!(
-            "Syntax: {} <Dimension> <Steps> <Output Name> <Seed>",
-            args[0]
-        );
+    if args.len() != 4 {
+        eprintln!("Syntax: {} <Dimension> <Steps> <Output Name>", args[0]);
         return Err(anyhow::format_err!(
-            "Syntax: {} <Dimension> <Steps> <Output Name> <Seed>",
+            "Syntax: {} <Dimension> <Steps> <Output Name>",
             args[0]
         ));
     }
@@ -26,12 +23,14 @@ pub fn main() -> Result<()> {
     println!("A FastScape RB+PI");
     println!("C Richard Barnes + Fee TODO");
     println!("h git_hash {GIT_HASH}");
-    // println!("m Random seed = {rand_seed}");
     let m = GridMeta::new(width, height);
     let mut h = vec![0.0; m.size()];
     generate_boring_terrain(&m, 0.0, 1.0 / 64.0, &mut h);
     run(nstep, &m, &Params::default(), &mut h);
 
+    // let mut dem  = vec![0.0; m.size()];
+    // generate_boring_terrain(&m, 0.0, 1.0/64.0, &mut dem);
+    // order_d8::run(nstep, &m, &Params::default(), &mut dem)?;
     print_dem(out_name, &h, &width, &height)?;
     Ok(())
 }

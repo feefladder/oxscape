@@ -2,7 +2,7 @@ use num_traits::Float;
 use rayon::prelude::*;
 use std::f64::consts::FRAC_PI_4;
 
-use crate::{Bazooka, GridMeta, Params, XSHIFT, YSHIFT};
+use crate::{Bazooka, GridMeta, NOT_A_DONOR, Params, XSHIFT, YSHIFT};
 
 //Table 1 of Tarboton (1997)
 // 3 2 1
@@ -50,95 +50,102 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
     let dang = d2.atan2(d1);
 
     flows
-        .iter_mut()
-        .zip(nrec)
+        .par_chunks_exact_mut(meta.width)
+        .zip(nrec.par_chunks_exact_mut(meta.width))
         .enumerate()
-        .for_each(|(n, (ps, recs))| {
-            if meta.is_edge(n) {
-                return;
-            }
+        .take(meta.height - 1)
+        .skip(1)
+        .for_each(|(y, (row, recs))| {
+            for x in 1..meta.width - 1 {
+                let n = meta.xy_to_i(x, y);
+                let ps = &mut row[x];
 
-            let mut imax = 9;
-            let mut smax = 0.0;
-            let mut rmax = 0.0;
+                let mut imax = 9;
+                let mut smax = 0.0;
+                let mut rmax = 0.0;
 
-            for i in 0..8 {
-                //Is is assumed that cells with a value of NoData have very negative
-                //elevations with the result that they draw flow off of the grid.
+                for i in 0..8 {
+                    //Is is assumed that cells with a value of NoData have very negative
+                    //elevations with the result that they draw flow off of the grid.
 
-                //Choose elevations based on Table 1 of Tarboton (1997), Barnes TODO
-                let e0: f64 = h[n];
-                let e1: f64 = h[(n as isize + DX_E1[i] + DY_E1[i] * meta.width as isize) as usize];
-                let e2: f64 = h[(n as isize + DX_E2[i] + DY_E2[i] * meta.width as isize) as usize];
+                    //Choose elevations based on Table 1 of Tarboton (1997), Barnes TODO
+                    let e0: f64 = h[n];
+                    let e1: f64 =
+                        h[(n as isize + DX_E1[i] + DY_E1[i] * meta.width as isize) as usize];
+                    let e2: f64 =
+                        h[(n as isize + DX_E2[i] + DY_E2[i] * meta.width as isize) as usize];
 
-                let s1 = (e0 - e1) / d1;
-                let s2 = (e1 - e2) / d2;
+                    let s1 = (e0 - e1) / d1;
+                    let s2 = (e1 - e2) / d2;
 
-                let mut r = s2.atan2(s1);
-                let s;
+                    let mut r = s2.atan2(s1);
+                    let s;
 
-                if r < 1e-7 {
-                    r = 0.0;
-                    s = s1;
-                } else if r > dang - 1e-7 {
-                    r = dang;
-                    s = (e0 - e2) / (d1 * d1 + d2 * d2).sqrt();
+                    if r < 1e-7 {
+                        r = 0.0;
+                        s = s1;
+                    } else if r > dang - 1e-7 {
+                        r = dang;
+                        s = (e0 - e2) / (d1 * d1 + d2 * d2).sqrt();
+                    } else {
+                        s = (s1 * s1 + s2 * s2).sqrt();
+                    }
+
+                    if s > smax {
+                        smax = s;
+                        imax = i;
+                        rmax = r;
+                    }
+                }
+
+                // Some problem; probably a NaN
+                if imax == 9 {
+                    println!("help! {x},{y},{n}");
+                    return;
+                }
+
+                if AF[imax] == 1.0 && rmax == 0.0 {
+                    rmax = dang;
+                } else if AF[imax] == 1.0 && rmax == dang {
+                    rmax = 0.0;
+                } else if AF[imax] == 1.0 {
+                    rmax = FRAC_PI_4 - rmax;
+                }
+
+                //Code used by Tarboton to calculate the angle Rg. This should give the same
+                //result despite the rearranged table
+                // double rg = NO_FLOW;
+                // if(nmax!=-1)
+                //   rg = (AF[nmax]*rmax+ac[nmax]*M_PI/2);
+
+                if rmax == 0.0 {
+                    ps[imax] = 1.0;
+                    recs[x] = 1;
+                } else if rmax == dang {
+                    ps[nwrap(imax + 1)] = 1.0;
+                    recs[x] = 1;
                 } else {
-                    s = (s1 * s1 + s2 * s2).sqrt();
+                    ps[imax] = rmax / FRAC_PI_4;
+                    ps[nwrap(imax + 1)] = 1.0 - rmax / FRAC_PI_4;
+                    recs[x] = 2;
                 }
-
-                if s > smax {
-                    smax = s;
-                    imax = i;
-                    rmax = r;
-                }
-            }
-
-            // Some problem; probably a NaN
-            if imax==9 {
-                return;
-            }
-
-            if AF[imax] == 1.0 && rmax == 0.0 {
-                rmax = dang;
-            } else if AF[imax] == 1.0 && rmax == dang {
-                rmax = 0.0;
-            } else if AF[imax] == 1.0 {
-                rmax = FRAC_PI_4 - rmax;
-            }
-
-            //Code used by Tarboton to calculate the angle Rg. This should give the same
-            //result despite the rearranged table
-            // double rg = NO_FLOW;
-            // if(nmax!=-1)
-            //   rg = (AF[nmax]*rmax+ac[nmax]*M_PI/2);
-
-            if rmax == 0.0 {
-                ps[imax] = 1.0;
-                *recs = 1;
-            } else if rmax == dang {
-                ps[nwrap(imax + 1)] = 1.0;
-                *recs = 1;
-            } else {
-                ps[imax] = rmax / FRAC_PI_4;
-                ps[nwrap(imax + 1)] = 1.0 - rmax / FRAC_PI_4;
-                *recs = 2;
             }
         });
 }
 
 pub fn compute_donors_mflow(meta: &GridMeta, flows: &[[f64; 8]], donor: &mut [[usize; 8]]) {
+    donor.fill([NOT_A_DONOR; 8]);
     donor.par_iter_mut().enumerate().for_each(|(i, don)| {
         let (x, y) = meta.i_to_xy(i);
         for n in 0..8 {
             if !meta.in_grid(x as isize + XSHIFT[n], y as isize + YSHIFT[n]) {
                 continue;
             }
-            let i_rec = (i as isize + meta.nshift[n]) as usize;
+            let i_rec = meta.shift(i, n.try_into().unwrap());
             // 1 2 3  0->4 1->5 2->6 3->7
             // 0 x 4  4->0 5->1 6->2 7->3
             // 7 6 5  so +4%7
-            if flows[i_rec][(n + 4) % 8] != NO_FLOW_GEN {
+            if flows[i_rec][GridMeta::rev(n)] != NO_FLOW_GEN {
                 don[n] = i_rec;
             }
         }
@@ -155,10 +162,10 @@ pub fn generate_order_mflow(
     meta: &GridMeta,
     nrec: &mut [u8],
     donor: &[[usize; 8]],
-    stack: &mut [usize],
-    levels: &mut Vec<usize>
+    stack: &mut Vec<usize>,
+    levels: &mut Vec<usize>,
 ) {
-    let mut nstack = 0;
+    stack.clear();
     levels.clear();
 
     // The first level starts at zero
@@ -167,14 +174,13 @@ pub fn generate_order_mflow(
     // Add cells that don't give flow as the first level
     for c in 0..meta.size {
         if nrec[c] == 0 {
-            stack[nstack] = c;
-            nstack += 1
+            stack.push(c);
         }
     }
-    levels.push(nstack);
-
     let mut level_bottom = 0; // first cell of current level
-    let mut level_top = nstack; // last cell of current level
+    let mut level_top = stack.len(); // last cell of current level
+
+    levels.push(level_top);
 
     // full BFS search, but we fill an array, so later it can be done in parallel
     while level_bottom < level_top {
@@ -183,20 +189,20 @@ pub fn generate_order_mflow(
             // load donating cells of focal cell into the stack
             for k in 0..8 {
                 let n = donor[c][k as usize];
-                if n == 0 {
+                if n == NOT_A_DONOR {
                     continue;
                 }
+                // counter so we only add on the last visit
                 nrec[n] -= 1;
                 if nrec[n] == 0 {
-                    stack[nstack] = n;
-                    nstack += 1;
+                    stack.push(n);
                 }
             }
         }
         level_bottom = level_top; // start at the previous level
-        level_top = nstack; // and process all cells that were added
+        level_top = stack.len(); // and process all cells that were added
 
-        levels.push(nstack);
+        levels.push(level_top);
     }
     levels.pop();
 }
@@ -228,10 +234,10 @@ pub unsafe fn accum_mflow(
             let mut sum = acc_ref.0.add(*c).read();
             for k in 0..8 {
                 let n = donor[*c][k as usize];
-                if n == 0 {
+                if n == NOT_A_DONOR {
                     continue;
                 }
-                sum += acc_ref.0.add(n).read() * flows[n][(k as usize + 4) % 8];
+                sum += acc_ref.0.add(n).read() * flows[n][GridMeta::rev(k as usize)];
             }
             *acc_ref.0.add(*c) = sum;
         });
@@ -280,10 +286,11 @@ pub(crate) mod test {
             0,1,
             2,2,
         ];
+        const N: usize = NOT_A_DONOR;
         let donor = [
         //  [0 1 2 3 4 5 6 7]  [0 1 2 3 4 5 6 7]
-            [1,2,0,0,0,0,0,0], [2,3,0,0,0,0,0,0],
-            [3,0,0,0,0,0,0,0], [0,0,0,0,0,0,0,0],
+            [1,2,N,N,N,N,N,N], [2,3,N,N,N,N,N,N],
+            [3,N,N,N,N,N,N,N], [N,N,N,N,N,N,N,N],
         ];
         let stack = [
             0,1,2,3
@@ -314,11 +321,12 @@ pub(crate) mod test {
             2,4,3,
             2,4,3,
         ];
+        const N: usize = NOT_A_DONOR;
         let donor = [
         //  [0 1 2 3 4 5 6 7]  [0 1 2 3 4 5 6 7]  [0 1 2 3 4 5 6 7]
-            [1,3,4,0,0,0,0,0], [2,3,4,5,0,0,0,0], [4,5,0,0,0,0,0,0],
-            [4,6,7,0,0,0,0,0], [5,6,7,8,0,0,0,0], [7,8,0,0,0,0,0,0],
-            [7,0,0,0,0,0,0,0], [8,0,0,0,0,0,0,0], [0,0,0,0,0,0,0,0],
+            [1,3,4,N,N,N,N,N], [2,3,4,5,N,N,N,N], [4,5,N,N,N,N,N,N],
+            [4,6,7,N,N,N,N,N], [5,6,7,8,N,N,N,N], [7,8,N,N,N,N,N,N],
+            [7,N,N,N,N,N,N,N], [8,N,N,N,N,N,N,N], [N,N,N,N,N,N,N,N],
         ];
         let stack = [
             0,1,2,3,4,5,6,7,8
@@ -337,9 +345,10 @@ pub(crate) mod test {
     }
 
     #[test]
+    #[rustfmt::skip]
     fn test_dinf_3() {
         let meta = &GridMeta::new(3, 3);
-        let mut props = vec![[0.0; 8]; meta.size];
+        let mut props = vec![[NO_FLOW_GEN; 8]; meta.size];
         let mut recs = vec![2; meta.size];
 
         fm_dinf(&meta, &consts::H_3, &mut props, &mut recs);
@@ -350,10 +359,15 @@ pub(crate) mod test {
                 assert_eq!(props[i], consts::DINF_3);
             }
         }
-        assert_eq!(recs, &[0, 0, 0, 0, 2, 0, 0, 0, 0,])
+        assert_eq!(recs, &[
+            0, 0, 0,
+            0, 2, 0,
+            0, 0, 0,
+        ])
     }
 
     #[test]
+    #[rustfmt::skip]
     fn test_dinf_4() {
         let meta = &GridMeta::new(4, 4);
         let mut props = vec![[0.0; 8]; meta.size];
@@ -366,7 +380,12 @@ pub(crate) mod test {
                 assert_eq!(props[i], consts::DINF_3);
             }
         }
-        assert_eq!(nrec, &[0, 0, 0, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 0, 0, 0,])
+        assert_eq!(nrec, &[
+            0, 0, 0, 0,
+            0, 2, 2, 0,
+            0, 2, 2, 0,
+            0, 0, 0, 0,
+        ])
     }
 
     #[test]
@@ -396,7 +415,7 @@ pub(crate) mod test {
         let mut flows = vec![[0.0;8];meta.size];
         let mut nrec = vec![0;meta.size];
         fm_dinf(&meta, &h, &mut flows, &mut nrec);
-        assert_eq!(&flows[4], &[0.0;8]);
+        assert_eq!(&flows[4], &[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
     }
 
     #[test]
@@ -411,21 +430,22 @@ pub(crate) mod test {
         let mut flows = vec![[0.0;8];meta.size];
         let mut nrec = vec![0;meta.size];
         fm_dinf(&meta, &h, &mut flows, &mut nrec);
-        assert_eq!(&flows[4], &[0.0;8]);
+        assert_eq!(&flows[4], &[0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
     }
 
     #[test]
+    #[rustfmt::skip]
     fn test_dinf_triple_nan() {
         let meta = &GridMeta::new(3, 3);
         let h = [
             f64::NAN, 0.0, f64::NAN,
             0.0, 1.0, 0.0,
-            0.0, 0.0, f64::NAN,
+            0.0, 0.0, f64::NAN
         ];
-        let mut flows = vec![[0.0;8];meta.size];
-        let mut nrec = vec![0;meta.size];
+        let mut flows = vec![[0.0; 8]; meta.size];
+        let mut nrec = vec![0; meta.size];
         fm_dinf(&meta, &h, &mut flows, &mut nrec);
-        assert_eq!(&flows[4], &[0.0;8]);
+        assert_eq!(&flows[4], &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
     }
 
     #[test]
@@ -438,18 +458,19 @@ pub(crate) mod test {
         fm_dinf(&meta, &h, &mut flows, &mut nrec);
         let mut donor = vec![[0;8];meta.size];
         compute_donors_mflow(&meta, &flows, &mut donor);
+        const N: usize = NOT_A_DONOR;
         assert_eq!(donor, &[
         //   0 1 2 3 4 5 6 7
-            [0,0,0,0,0,4,0,0], [0,0,0,0,0,0,4,0], [0;8], // 0
-            [0;8], [0;8], [0;8], // 1
-            [0;8], [0;8], [0;8], // 2
+            [N,N,N,N,N,4,N,N], [N,N,N,N,N,N,4,N], [N;8], // N
+            [N;8], [N;8], [N;8], // 1
+            [N;8], [N;8], [N;8], // 2
         ]);
         assert_eq!(flows, vec![
             [0.0;8],[0.0;8],[0.0;8],
             [0.0;8],[0.0,0.590334470601733,0.40966552939826695,0.0,0.0, 0.0, 0.0, 0.0],[0.0;8],
             [0.0;8],[0.0;8],[0.0;8],
         ]);
-        let mut stack = [0;9];
+        let mut stack = Vec::with_capacity(9);
         let mut levels = Vec::with_capacity(3);
         generate_order_mflow(&meta, &mut nrec, &donor, &mut stack, &mut levels);
         assert_eq!(&stack, &[
@@ -475,12 +496,13 @@ pub(crate) mod test {
         fm_dinf(&meta, &h, &mut flows, &mut nrec);
         let mut donor = vec![[0;8];meta.size];
         compute_donors_mflow(&meta, &flows, &mut donor);
+        const N: usize = NOT_A_DONOR;
         assert_eq!(donor, &[
         //   0 1 2 3 4 5 6 7
-            [0,0,0,0,0,5,0,0], [0,0,0,0,0, 6,5,0], [0,0,0,0,0,0, 6,0], [0;8], // 0
-            [0,0,0,0,0,9,0,0], [0,0,0,0,0,10,9,0],[0,0,0,0,0,0,10,0], [0;8], // 1
-            [0,0,0,0,0,0,0,0], [0,0,0,0,0, 0,0,0],[0;8], [0;8], // 2
-            [0;8],[0;8],[0;8],[0;8], // 3
+            [N,N,N,N,N,5,N,N], [N,N,N,N,N, 6,5,N], [N,N,N,N,N,N, 6,N], [N;8], // N
+            [N,N,N,N,N,9,N,N], [N,N,N,N,N,10,9,N],[N,N,N,N,N,N,10,N], [N;8], // 1
+            [N,N,N,N,N,N,N,N], [N,N,N,N,N, N,N,N],[N;8], [N;8], // 2
+            [N;8],[N;8],[N;8],[N;8], // 3
         ]);
 
         

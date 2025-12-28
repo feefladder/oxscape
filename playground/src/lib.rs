@@ -1,7 +1,14 @@
 use rayon::prelude::*;
 
+/// (*mut i32) cannot be shared between threads.
+/// This struct allows us to shoot it between threads
+/// Ensuring safe landing is our responsibility 
 struct Bazooka(*mut i32);
 
+/// here we say references can be shared between threads
+/// This is under the very strict guarantee that we won't misuse it
+/// 
+/// SAFETY: We will only ever read from and write to disjoint indices within a parallel region
 unsafe impl Sync for Bazooka {}
 
 /// SAFETY: It is your responsibility to ensure:
@@ -27,29 +34,40 @@ unsafe impl Sync for Bazooka {}
 ///     }
 /// }
 /// ```
-pub unsafe fn do_stuff(arr: &mut [i32], levels: &[usize], stack: &[isize], allowed_indices: &[isize]) {
+pub unsafe fn do_stuff(arr: &mut [i32], levels: &[usize], stack: &[isize], donors: &[isize]) {
     let ptr = Bazooka(arr.as_mut_ptr());
     let r = &ptr;
     for level in levels.windows(2).map(|w| &stack[w[0]..w[1]]) {
-        level.into_iter().for_each(|idx| unsafe {
-            let val = r.0.offset(allowed_indices[*idx as usize]).read();
+        level.into_par_iter().for_each(|idx| unsafe {
+            let val = r.0.offset(donors[*idx as usize]).read();
             *r.0.offset(*idx) += val;
         });
     }
 }
 
+/// (*mut i32) cannot be shared between threads.
+/// This struct allows us to shoot it between threads
+/// Ensuring safe landing is our responsibility 
 struct RawBazooka(*mut i32);
 
+/// here we say references can be shared between threads
+/// This is under the very strict guarantee that we won't misuse it
+/// 
+/// SAFETY: We will only ever read from and write to disjoint indices within a parallel region
 unsafe impl Sync for RawBazooka {}
 
-pub unsafe fn do_raw_stuff(arr: &mut[i32], levels: &[usize], stack: &[isize], allowed_indices: &[isize]) {
+pub unsafe fn accum(arr: &mut[i32], levels: &[usize], stack: &[isize], allowed_indices: &[isize]) {
     let ptr = RawBazooka(arr.as_mut_ptr());
+    // make a reference, so we only share the value by-reference
     let r = &ptr;
+    // SAFETY: do NOT use `arr` inside this closure, only `r`
+    // we can safely mutate the current cell
+    // while reading its donors and receivers.
+    // Those are on other levels.
     for level in levels.windows(2).map(|w|&stack[w[0]..w[1]]) {
         level.into_par_iter().for_each(|idx| unsafe {
-            let p = r;
-            let val = p.0.offset(allowed_indices[*idx as usize]).read();
-            *p.0.offset(*idx) += val;
+            let val = r.0.offset(allowed_indices[*idx as usize]).read();
+            *r.0.offset(*idx) += val;
         });
     }
 }
@@ -80,24 +98,37 @@ fn test_stuff() {
     assert_eq!(arr, [1,2,5,8]);
 }
 
-
-#[test]
-fn test_raw_stuff() {
-    let mut arr = [0,1,2,3];
-    let stack = [0,2,1,3];
-    let levels = [0,2,4];
-    let allowed_indices = [1,0,3,2];
-    unsafe {
-        do_raw_stuff(&mut arr, &levels, &stack, &allowed_indices);
-    }
-    assert_eq!(arr, [1,2,5,8]);
-}
-
+/// This test is mainly there to verify miri doesn't like rayon
+/// 
+/// e.g. we get the same miri errors when this test runs as when any other tests
+/// using rayon run.
 #[test]
 fn test_rayon() {
     let mut arr = [0,1,2,3];
     arr.par_iter_mut().for_each(|v| *v+=1);
     assert_eq!(&arr, &[1,2,3,4]);
+}
+
+
+#[test]
+fn test_accum() {
+    let mut arr = [
+        0,1,
+        2,3
+    ];
+    let stack = [
+        0,2, // lvl0
+        1,3  // lvl1
+    ];
+    let levels = [0,2,4];
+    let donors = [
+        1,0,
+        3,2
+    ];
+    unsafe {
+        accum(&mut arr, &levels, &stack, &donors);
+    }
+    assert_eq!(arr, [1,2,5,8]);
 }
 
 #[test]
@@ -109,7 +140,7 @@ fn test_datarace() {
         2,3
     ];
     let stack = [
-        0,2,
+        0,2, // this should be the same for 2,0 and 0,2
         1,3
     ];
     let levels = [0,2,4];
@@ -120,9 +151,24 @@ fn test_datarace() {
         3,2
     ];
     unsafe {
-        do_stuff(&mut arr, &levels, &stack, &allowed_indices);
+        accum(&mut arr, &levels, &stack, &allowed_indices);
     }
-    assert_eq!(arr, [2,3,5,8]);
+    // for some reason it runs normally...
+    assert_eq!(arr, [
+        2,3,
+        5,8
+    ]);
+    // this is the outcome when level 0 is [2,0]
+    // it doesn't happen when level 0 is [0,2],
+    // probably because of the work-stealing nature of rayon
+    // That is: the first level [0,2] gets split [0],[2]
+    // and 0 gets processed before 2
+    // However, this is an IMPLEMENTATION DETAIL
+    // and cannot be relied upon.
+    assert_eq!(arr, [
+        5,6,
+        5,8,
+    ])
 }
 
 #[test]
