@@ -231,13 +231,16 @@ impl Order {
         self.levels.len() - 1
     }
 
+    pub fn meta(&self) -> &GridMeta {
+        &self.meta
+    }
+
     /// Create an uninitialized order
-    ///
-    /// SAFETY: you MUST call `reorder` before any iterations
-    pub unsafe fn empty(meta: GridMeta) -> Self {
+    pub fn empty(meta: GridMeta) -> Self {
         let receivers = vec![0; meta.size];
         let donors = vec![[0; 8]; meta.size];
-        let stack = vec![0; meta.size];
+        // SAFETY: stack and levels need to be empty so that no traversal is done
+        let stack = Vec::with_capacity(meta.size);
         let levels = Vec::with_capacity(2 * meta.width + 2 * meta.height);
         Self {
             meta,
@@ -248,11 +251,11 @@ impl Order {
         }
     }
 
-    pub fn from_dem_trait<M: FlowMetric>(meta: GridMeta, dem: &[f64], metric: M) -> Result<Self> {
+    pub fn from_dem_metric<M: FlowMetric>(meta: GridMeta, dem: &[f64], metric: M) -> Result<Self> {
         if meta.size != dem.len() {
             return Err(anyhow!("meta dem mismatch"));
         }
-        let mut s = unsafe { Self::empty(meta) };
+        let mut s = Self::empty(meta);
         s.reorder(dem, metric)?;
         Ok(s)
     }
@@ -365,7 +368,7 @@ pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {
 }
 
 pub fn run(nstep: usize, meta: &GridMeta, params: &Params, dem: &mut [f64]) -> Result<()> {
-    let mut order = unsafe { Order::empty(*meta) };
+    let mut order = Order::empty(*meta);
     let mut acc = vec![0.0; meta.size];
     for _ in 0..nstep {
         order.reorder(dem, D8)?;
@@ -378,12 +381,15 @@ pub fn run(nstep: usize, meta: &GridMeta, params: &Params, dem: &mut [f64]) -> R
 
 #[cfg(test)]
 mod test {
+    use std::{collections::HashSet, panic::{AssertUnwindSafe, catch_unwind}};
+    use std::panic;
+
     use super::*;
 
     const META: GridMeta = GridMeta::new(6, 6);
     #[rustfmt::skip]
     mod consts {
-        use crate::order_d8::NOT_A_DONOR;
+        use crate::order_sflow::NOT_A_DONOR;
 
     pub const H_INIT: [f64;36] = [
         //     0    1    2    3    4    5
@@ -489,6 +495,63 @@ mod test {
     }
 
     #[test]
+    #[ignore = "Hour long test"]
+    fn test_generate_order_exhausive() {
+        // cargo test --release -- order_d8::test::test_generate_order_exhausive --ignored --nocapture
+        // silence panic output
+        let default_hook = panic::take_hook();
+        panic::set_hook(Box::new(|_| {}));
+
+        let meta = GridMeta::new(3, 3);
+        let mut donors = vec![[NOT_A_DONOR; 8]; meta.size];
+        let mut stack = Vec::with_capacity(meta.size);
+        let mut levels = Vec::with_capacity(meta.size);
+        let mut receivers: Vec<u8> = vec![9;meta.size];
+        let mut set = HashSet::with_capacity(meta.size);
+
+        let total = meta.size.pow(9);
+
+        for mut n in 68555889..total { // TODO: reset to 0 when done
+            if (n % 9usize.pow(6)) == 0 {
+                println!("{n} out of {} iterations", 9usize.pow(9));
+                
+            }
+            // decode n into base-9 digits
+            for i in 0..9 {
+                receivers[i] = (n % 9) as u8;
+                n /= 9;
+            }
+            if catch_unwind(AssertUnwindSafe(|| {
+            compute_donors(&meta, &receivers, &mut donors);
+            generate_order(&receivers, &donors, &mut stack, &mut levels);
+            })).is_err() {
+                continue;
+            }
+            for level in levels.windows(2).map(|w| &stack[w[0]..w[1]]) {
+                // create a set to check duplicates
+                set.clear();
+                // level indices don't overlap
+                for idx in level {
+                    assert!(set.insert(*idx));
+                }
+                // allowed_indices point OUTSIDE the level
+                for idx in level {
+                    assert!(!set.contains(&meta.shift(*idx, receivers[*idx])));
+                    for n in 0..8 {
+                        let don_idx = donors[*idx][n];
+                        if don_idx != NOT_A_DONOR {
+                            assert!(!set.contains(&don_idx))
+                        }
+                    }
+                }
+            }
+        }
+
+        // restore hook so other tests behave normally
+        panic::set_hook(default_hook);
+    }
+
+    #[test]
     fn test_compute_donors_loop() {
         let meta = &GridMeta::new(2, 1);
         let rec = [4, 0];
@@ -580,10 +643,17 @@ mod test {
     }
 
     #[test]
+    fn test_order_empty_run() {
+        let order = Order::empty(GridMeta::new(2, 2));
+        order.for_lvls_bottom_up(&mut [0.0; 4], |_| panic!("I shouldn't run!"));
+        order.for_lvls_top_down(&mut [0.0; 4], |_| panic!("I shouldn't run!"));
+    }
+
+    #[test]
     fn test_compute_acc() {
         let meta = GridMeta::new(8, 8);
         let mut acc = vec![0.0; meta.size];
-        let order = Order::from_dem_trait(meta, &consts::H_LIFT, D8).unwrap();
+        let order = Order::from_dem_metric(meta, &consts::H_LIFT, D8).unwrap();
         accum(&order, &Params::default(), &mut acc);
         assert_eq!(acc, consts::ACCUM);
     }
@@ -591,7 +661,7 @@ mod test {
     #[test]
     fn test_erode() {
         let mut h = consts::H_LIFT.to_vec();
-        let order = Order::from_dem_trait(GridMeta::new(8, 8), &consts::H_LIFT, D8).unwrap();
+        let order = Order::from_dem_metric(GridMeta::new(8, 8), &consts::H_LIFT, D8).unwrap();
         erode(&order, &Params::default(), &consts::ACCUM, &mut h);
         assert_eq!(h, consts::H_ONE);
     }

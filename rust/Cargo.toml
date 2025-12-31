@@ -2,6 +2,14 @@
 name = "oxscape"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Oxscape enables parallel flow graph (D8, Dinf) traversal in Digital Elevation Models"
+readme = "../README.md"
+homepage = "https://codeberg.org/feefladder/oxscape/"
+repository = "https://codeberg.org/feefladder/oxscape/"
+keywords = ["GIS", "hydrology", "flow", "LEM", "landscape"]
+categories = ["science::geo", "simulation", "wasm", "concurrency"]
+
 
 [dependencies]
 anyhow = "1.0.100"
