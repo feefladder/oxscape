@@ -1,6 +1,6 @@
 [package]
 name = "oxscape"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 description = "Oxscape enables parallel flow graph (D8, Dinf) traversal in Digital Elevation Models"
