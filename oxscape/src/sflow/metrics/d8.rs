@@ -1,6 +1,6 @@
-use rayon::prelude::*;
-use crate::{DR, GridMeta};
 use crate::sflow::NO_FLOW;
+use crate::{DR, GridMeta};
+use rayon::prelude::*;
 
 ///The receiver of a focal cell is the cell which receives the focal cells'
 ///flow. Here, we model the receiving cell as being the one connected to the
@@ -23,7 +23,7 @@ pub fn compute_receivers(meta: &GridMeta, h: &[f64], rec: &mut [u8]) {
                     let slope = (h[c] - h[meta.shift(c, n)]) / DR[usize::from(n)];
                     if slope > max_slope {
                         max_slope = slope;
-                        max_n = n as u8;
+                        max_n = n;
                     }
                 }
                 row[x] = max_n;
@@ -35,7 +35,7 @@ pub fn compute_receivers(meta: &GridMeta, h: &[f64], rec: &mut [u8]) {
 mod test {
     use super::*;
     const META: GridMeta = GridMeta::new(6, 6);
-     #[rustfmt::skip]
+    #[rustfmt::skip]
     mod consts {
     pub const H_INIT: [f64;36] = [
         //     0    1    2    3    4    5

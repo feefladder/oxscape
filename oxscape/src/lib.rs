@@ -1,7 +1,6 @@
 pub mod mflow;
 pub mod sflow;
 
-use rayon::prelude::*;
 use std::env;
 use std::f64::consts::SQRT_2;
 
@@ -178,7 +177,6 @@ struct Bazooka<T: Send + Sync>(*mut T);
 ///
 /// SAFETY: We will only ever read from and write to disjoint indices within a parallel region
 unsafe impl<T: Send + Sync> Sync for Bazooka<T> {}
-
 
 #[cfg(test)]
 mod test {

@@ -1,12 +1,11 @@
 mod order;
-pub use order::{Order, NO_FLOW_GEN, FlowMetric};
-#[cfg(feature="metrics")]
+pub use order::{FlowMetric, NO_FLOW_GEN, Order};
+#[cfg(feature = "metrics")]
 pub mod metrics;
 
 use rayon::prelude::*;
 
 use crate::{GridMeta, NOT_A_DONOR, XSHIFT, YSHIFT};
-
 
 pub fn compute_donors_mflow(meta: &GridMeta, flows: &[[f64; 8]], donor: &mut [[usize; 8]]) {
     donor.fill([NOT_A_DONOR; 8]);

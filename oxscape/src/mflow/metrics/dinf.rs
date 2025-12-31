@@ -134,8 +134,8 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
 mod test {
     use super::*;
     use crate::NOT_A_DONOR;
-    use crate::mflow::{Order, compute_donors_mflow, generate_order_mflow};
     use crate::mflow::test::consts;
+    use crate::mflow::{Order, compute_donors_mflow, generate_order_mflow};
 
     #[test]
     #[rustfmt::skip]

@@ -1,4 +1,4 @@
-use crate::{Bazooka, DR, GridMeta, NOT_A_DONOR};
+use crate::{Bazooka, GridMeta, NOT_A_DONOR};
 use anyhow::{Result, anyhow};
 use num_traits::Zero;
 use rayon::prelude::*;
@@ -12,7 +12,22 @@ pub fn generate_boring_terrain(dem: &mut [f64], start: f64, delta: f64) {
 }
 
 /// Flow metric.
-pub unsafe trait FlowMetric {
+///
+/// To implement this, receivers should contain a flow direction as shown below
+/// or `oxscape::sflow::NO_FLOW` Anything else will give unpredictable results.
+/// Edge cells should also give `oxscape::sflow::NO_FLOW` For an example
+/// implementation, see the D8 `compute_receivers` function.
+///
+/// ```
+/// # let x = 4;
+/// let arr = [
+/// 1,2,3,
+/// 0,x,4,
+/// 7,6,5,
+/// ];
+///
+/// ```
+pub trait FlowMetric {
     fn metric(&self, meta: &GridMeta, dem: &[f64], receivers: &mut [u8]) -> Result<()>;
 }
 
@@ -54,7 +69,6 @@ fn compute_donors_par(meta: &GridMeta, rec: &[u8], donors: &mut [[usize; 8]]) {
         }
     });
 }
-
 
 ///Cells must be ordered so that they can be traversed such that higher cells
 ///are processed before their lower neighbouring cells. This method creates
@@ -104,8 +118,6 @@ pub fn generate_order(
     }
     levels.pop();
 }
-
-
 
 pub struct LevelAccessor<'a, T: Send + Sync> {
     arr: &'a Bazooka<T>,
@@ -300,8 +312,11 @@ impl Order {
 
 #[cfg(test)]
 mod test {
-    use std::{collections::HashSet, panic::{AssertUnwindSafe, catch_unwind}};
     use std::panic;
+    use std::{
+        collections::HashSet,
+        panic::{AssertUnwindSafe, catch_unwind},
+    };
 
     use super::*;
 
@@ -357,7 +372,6 @@ mod test {
     ];
     }
 
-
     #[test]
     fn test_compute_donors() {
         let mut donor = vec![[0; 8]; META.size];
@@ -386,15 +400,15 @@ mod test {
         let mut donors = vec![[NOT_A_DONOR; 8]; meta.size];
         let mut stack = Vec::with_capacity(meta.size);
         let mut levels = Vec::with_capacity(meta.size);
-        let mut receivers: Vec<u8> = vec![9;meta.size];
+        let mut receivers: Vec<u8> = vec![9; meta.size];
         let mut set = HashSet::with_capacity(meta.size);
 
         let total = meta.size.pow(9);
 
-        for mut n in 68555889..total { // TODO: reset to 0 when done
+        for mut n in 68555889..total {
+            // TODO: reset to 0 when done
             if (n % 9usize.pow(6)) == 0 {
                 println!("{n} out of {} iterations", 9usize.pow(9));
-                
             }
             // decode n into base-9 digits
             for i in 0..9 {
@@ -402,9 +416,11 @@ mod test {
                 n /= 9;
             }
             if catch_unwind(AssertUnwindSafe(|| {
-            compute_donors(&meta, &receivers, &mut donors);
-            generate_order(&receivers, &donors, &mut stack, &mut levels);
-            })).is_err() {
+                compute_donors(&meta, &receivers, &mut donors);
+                generate_order(&receivers, &donors, &mut stack, &mut levels);
+            }))
+            .is_err()
+            {
                 continue;
             }
             for level in levels.windows(2).map(|w| &stack[w[0]..w[1]]) {

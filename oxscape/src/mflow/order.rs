@@ -1,5 +1,5 @@
 use crate::mflow::{compute_donors_mflow, generate_order_mflow};
-use crate::{Bazooka, DR, GridMeta, NOT_A_DONOR};
+use crate::{Bazooka, GridMeta, NOT_A_DONOR};
 
 use anyhow::{Result, anyhow};
 use num_traits::Zero;
@@ -94,6 +94,16 @@ pub struct Order {
     levels: Vec<usize>,
 }
 
+/// Flowmetric to implement
+///
+/// A flowmetric should write to flows and nrec, where nrec is the number of
+/// receivers of a current cell
+///
+/// SAFETY: Cycles are omitted and out-of-bounds will panic. However, if `nrec`
+/// is not sound _and_ the flow graph contains a cycle, it is uncertain if the
+/// flowgraph could be unsound. It is your responsibility that nrec contains the
+/// number of receivers and flows only point downstream (no cycles).
+///
 pub unsafe trait FlowMetric {
     fn metric(
         &self,
@@ -140,7 +150,7 @@ impl Order {
         assert!(data.len() == self.meta.size);
         let b = Bazooka(data.as_mut_ptr());
         for level in self.levels.windows(2).map(|w| &self.stack[w[0]..w[1]]) {
-            level.into_iter().for_each(|v| {
+            level.par_iter().for_each(|v| {
                 // SAFETY: we have a sound topological sorting. The LevelAccessor
                 // only accesses donors and receivers, and those are on
                 // different levels

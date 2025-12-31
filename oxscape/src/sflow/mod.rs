@@ -1,4 +1,4 @@
 mod order;
 pub use order::*;
-#[cfg(feature="metrics")]
+#[cfg(feature = "metrics")]
 pub mod metrics;
