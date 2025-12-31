@@ -1,6 +1,6 @@
 
 # Oxscape
-![An Ox pulling the word "oxscape" left over soil that is (left-to-right) tilled, mulched and grows grass.](img/oxscape.svg)
+![An Ox pulling the word "oxscape" left over soil that is (left-to-right) tilled, mulched and grows grass.](../img/oxscape.svg)
 
 Oxscape (oxidized FastScape) is rust port and abstraction of Barnes' parallel flow graph traversal algorithm (2019) [![DOI](https://zenodo.org/badge/110618450.svg)](https://zenodo.org/badge/latestdoi/110618450). Oxscape is the ox that pulls your landscape evolution models.
 

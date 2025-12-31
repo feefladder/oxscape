@@ -1,22 +1,11 @@
-use crate::mflow::{NO_FLOW_GEN, compute_donors_mflow, fm_dinf, generate_order_mflow};
-use crate::{Bazooka, DR, GridMeta, NOT_A_DONOR, Params};
+use crate::mflow::{compute_donors_mflow, generate_order_mflow};
+use crate::{Bazooka, DR, GridMeta, NOT_A_DONOR};
 
 use anyhow::{Result, anyhow};
 use num_traits::Zero;
 use rayon::prelude::*;
 
-pub fn accum(params: &Params, order: &Order, accum: &mut [f64]) {
-    // initialize to cell area
-    accum.fill(params.cell_area);
-
-    order.for_lvls_top_down(accum, |v| {
-        let mut sum = *v.cell();
-        for (val, factor) in v.donors() {
-            sum += val * factor;
-        }
-        *v.cell() = sum;
-    })
-}
+pub const NO_FLOW_GEN: f64 = 0.0;
 
 pub struct LevelAccessor<'a, T: Send + Sync> {
     arr: &'a Bazooka<T>,
@@ -115,23 +104,6 @@ pub unsafe trait FlowMetric {
     ) -> Result<()>;
 }
 
-pub struct Dinf;
-
-unsafe impl FlowMetric for Dinf {
-    fn metric(
-        &self,
-        meta: &GridMeta,
-        dem: &[f64],
-        flows: &mut [[f64; 8]],
-        nrec: &mut [u8],
-    ) -> Result<()> {
-        assert_eq!(dem.len(), meta.size);
-        assert_eq!(flows.len(), meta.size);
-        fm_dinf(meta, dem, flows, nrec);
-        Ok(())
-    }
-}
-
 impl Order {
     pub fn n_levels(&self) -> usize {
         self.levels.len() - 1
@@ -215,56 +187,10 @@ impl Order {
     }
 }
 
-pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {
-    order.for_lvls_bottom_up(dem, |a| {
-        let acc = accum[a.idx()];
-        if acc == 0.0 {
-            return;
-        }
-
-        let mut hnew = *a.cell();
-        let h0 = hnew;
-
-        let fact_base = params.keq * params.dt * acc.powf(params.meq);
-
-        let recs = a.receivers(); // [(w, h_i); 8]
-
-        let mut hp = hnew;
-        let mut diff = 2.0 * params.tol;
-
-        while diff.abs() > params.tol {
-            let mut f = hnew - h0;
-            let mut df = 1.0;
-
-            for (n, (w, hn)) in recs.iter().enumerate() {
-                if *w == NO_FLOW_GEN {
-                    continue;
-                }
-
-                let dh = hnew - *hn;
-                if dh <= 0.0 {
-                    continue;
-                }
-
-                let len = DR[n];
-                let term = fact_base * w / len;
-
-                f += term * dh.powf(params.neq);
-                df += term * params.neq * dh.powf(params.neq - 1.0);
-            }
-
-            hnew -= f / df;
-            diff = hnew - hp;
-            hp = hnew;
-        }
-
-        *a.cell() = hnew;
-    });
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::mflow::metrics::Dinf;
 
     #[test]
     fn test_order_single_level() {
@@ -367,8 +293,10 @@ mod test {
             0,1,2,3,5,6,7,8,4
         ]);
         assert_eq!(&order.levels, &[0,8,9]);
-        let mut acc = [0.0;9];
-        accum(&Params::default(), &order, &mut acc);
+        let mut acc = [1.0;9];
+        order.for_lvls_top_down(&mut acc, |c| {
+            *c.cell() += c.donors().iter().map(|(frac, val)| frac*val).sum::<f64>()
+        });
         assert_eq!(&acc, &[
             1.590334470601733, 1.40966552939826695, 1.0,
             1.0, 1.0, 1.0,

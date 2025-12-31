@@ -1,0 +1,9 @@
+[package]
+name = "oxscape_erode"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+oxscape = {version = "0.1", path = "../oxscape"}
+rayon = "1.11"
+

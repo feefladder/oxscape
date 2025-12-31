@@ -6,8 +6,13 @@
 \usepackage{orcidlink}
 \usepackage{amsmath}
 \usepackage{graphicx}
+
 \usepackage{minted}
+\usemintedstyle{tango}
+
 \usepackage{svg}
+\usepackage{wrapfig}
+
 \usepackage{subcaption}
 \usepackage{ccicons}
 \usepackage[final]{pdfpages}
@@ -60,7 +65,7 @@ challenges: Tight coupling between scientific models, (parallel) optimizations,
 graphical user interfaces and platform-specific build systems hinders
 modification and re-use of erosion models.
 
- I will also propose a workflow for developing erosion
+I will also propose a workflow for developing erosion
 models that should increase maintainability, portability and verifiability of
 new or existing codebases. To reify this workflow, I adopted it to port a sample
 program \cite{barnesAcceleratingFluvialIncision2019} to Rust.
@@ -122,23 +127,12 @@ void Erode(){
 }
 \end{minted}
 
-Note the \mintinline{cpp}|#pragma omp parallel for| directive. This implies
-parallel execution: Multiple threads process the array in parallel. Since data
-is both read from (\mintinline{cpp}|hn=h[n]|) and  written to the array
-(\mintinline{cpp}|h[c]=hnew|), there is the possibility of a data race: If both
-the cell (\mintinline{cpp}|h[c]|) and its receiver (\mintinline{cpp}|h[n]|) are
-in the same level, the receiver will be both updated and read from different
-threads. The algorithms presented by Barnes
-(\cite{barnesAcceleratingFluvialIncision2019}) ensure disjointness. In
-code\footnote{In MathSpeak, it would be: Let $L[n]$ contain all cells of a
-level, $R[c]$ a cell's receivers and $D[c]$ it's donors. Then, $\forall n\forall
-c_{\in L[n]}:c\neq c\land R[c]\not\in L[n]\land D[c]\not\in L[n]$. Actually, the
-guarantee is even stronger for correctness: $\forall n\forall c_{\in L[n]}: R[c]\in
-L[n-1]\land D[c]\in L[n+1]$, but this is not required for memory safety. To be
-also mathematically correct, define $L[-1]:=\{\emptyset\}$ and $L[N+1]:=\{\emptyset\}$
-where $N$ is the highest level.} (Rust) This is invariant is expressed as:
+Note the \mintinline{cpp}|#pragma omp parallel for| directive. This implies parallel execution: Multiple threads process the array in parallel. Since data is both read from (\mintinline{cpp}|hn=h[n]|) and  written to the array (\mintinline{cpp}|h[c]=hnew|), there is the possibility of a data race: If both the cell (\mintinline{cpp}|h[c]|) and its receiver (\mintinline{cpp}|h[n]|) are in the same level, the receiver will be both updated and read from different threads. The algorithms presented by Barnes (\cite{barnesAcceleratingFluvialIncision2019}) ensure disjointness. In
+code
+% \footnote{In MathSpeak, it would be: Let $L[n]$ contain all cells of a level, $R[c]$ a cell's receivers and $D[c]$ it's donors. Then, $\forall n\forall c_{\in L[n]}:c\neq c\land R[c]\not\in L[n]\land D[c]\not\in L[n]$. Actually, the guarantee is even stronger for correctness: $\forall n\forall c_{\in L[n]}: R[c]\in L[n-1]\land D[c]\in L[n+1]$, but this is not required for memory safety. To be also mathematically correct, define $L[-1]:=\{\emptyset\}$ and $L[N+1]:=\{\emptyset\}$ where $N$ is the highest level.}
+(\href{https://youtu.be/TGfQu0bQTKc}{Rust}) The disjointness invariant is expressed as:
 \begin{minted}{rust}
-// Parallelism invariant
+// Parallelism memory safety invariant
 // example data
 let mut arr = vec![
     0,1,
@@ -150,7 +144,7 @@ let stack = vec![
 ];
 let levels = vec![0,2,4]; // first stack[0..2], then stack[2..4]
 // these are receivers of the current cell
-let allowed_indices = [
+let donors = [
     1,0, // cell 0 looks at cell 1, cell 1 looks at 0
     3,2  // 2->3 and 3->2
 ];
@@ -163,34 +157,33 @@ for level in levels.windows(2).map(|w| &stack[w[0]..w[1]]) {
     }
     // allowed_indices point OUTSIDE the level
     for idx in level {
-        assert!(!set.contains(&allowed_indices[*idx]));
+        assert!(!set.contains(&donors[*idx]));
     }
 }
 \end{minted}
 
-It is up to the programmer to ensure this is upheld at any time. Once it is
-broken, that causes a data race. Data races are Undefined Behaviour, which -with
-modern compilers- allow basically anything to
-happen\cite{chenUndefinedBehaviorCan2014,regehrGuideUndefinedBehavior2010}. While such constraints can be reasoned about informally, maintaining them across
-code changes, parallelization, and optimization places a significant cognitive
-burden on the programmer. This observation motivated a development approach that
-prioritizes making such assumptions explicit and mechanically checked during
-implementation. Ideally, this burden should not be placed on erosion
-model developers at all, but encapsulated in reusable and verifiable
-infrastructure. Therefore, I will share a methodology prioritizes making such assumptions explicit and mechanically checked during implementation.
+It is up to the programmer to ensure this is upheld at any time. Once it is broken, that causes a data race. Data races are Undefined Behaviour\cite{desiresSendSync}, which -with modern compilers- allow basically anything to happen\cite{chenUndefinedBehaviorCan2014,regehrGuideUndefinedBehavior2010}. While such invariants can be reasoned about, maintaining them across code changes, parallelization, and optimization places a significant cognitive burden on the programmer. This motivated making such assumptions explicit and mechanically checked during implementation. Ideally, this burden should not be placed on erosion modelers at all\footnote{Here, Erosion Modeler is a role. When the same person models erosion and makes the code run fast, those are two different roles.}, but encapsulated in reusable and verifiable infrastructure. Therefore, I will conclude with an abstraction that allows parallel graph traversal in safe rust.
 
 \section{Methods}
 
-This text is a narrative of implementation rather than a survey or a formal methodological contribution. The focus is on process: identifying a compact but non-trivial parallel erosion model, establishing correctness through small unit tests, porting the code to Rust with minimal semantic changes, and then incrementally reintroducing parallelism and generalizing the algorithm. The intention is that readers can follow the same steps when adapting existing scientific codebases, rather than treating the final Rust implementation as a black box.
+This section is a narrative of implementation rather than a formal methodological contribution. The focus is on process: identifying a compact but non-trivial parallel erosion model, establishing correctness through small unit tests, porting the code to Rust with minimal semantic changes, and then incrementally reintroducing parallelism and generalizing the algorithm. The intention is that readers can follow the same steps when adapting existing scientific codebases.
+
+\subsection{Step 0: Tooling and Development Environment}
+
+Proper tools are essential to any intervention or development. These only work in the right environment, in my case \href{https://vscodium.com/}{vscodium}. The tool I use the most in any programming language (\href{https://open-vsx.org/vscode/item?itemName=llvm-vs-code-extensions.vscode-clangd}{C++}/\href{https://open-vsx.org/vscode/item?itemName=rust-lang.rust-analyzer}{Rust}/\href{https://open-vsx.org/vscode/item?itemName=astral-sh.ty}{Python}) is a \textit{language server}. This is a program that runs while writing code and continuously points out errors or warnings. It also allows for tab-completion\footnote{writing part of a function/variable name and pressing tab to fill out the rest} and Ctrl-clicking function or variable names to scroll to their definition or uses. Secondly, especially when confronted with a new concept or programming language, LLMs\footnote{Large Language Models. These are sometimes referred to as AI. The I in LLM stands for Intelligence.} such as ChatGPT help me with \href{https://en.wikipedia.org/wiki/Rubber_duck_debugging}{initial understanding} and finding the relevant documentation, as well as scaffolding non-critical parts of the code.
 
 \subsection{Step 1: porting the sequential algorithm with unit tests}
 
-The first step in porting \cite{barnesAcceleratingFluvialIncision2019}, was writing \textit{unit tests}. Somewhat intentionally, the parallelism invariant from earlier is a minimal example of a \textit{unit test}. The concept will be shortly explained.
+The first step in porting \cite{barnesAcceleratingFluvialIncision2019}, was writing \textit{unit tests}. As visualized in figure \ref{fig:roots}, empirical testing form epistemological roots of a physical model, whereas unit testing serve as the roots of their implementation. Somewhat intentionally, the parallelism invariant from earlier is a minimal example of a \textit{unit test}. The concept will be shortly explained.
 
-When programming algorithms, I always use a pen and paper to work through some
-very simple examples. In a unit test, you let the computer work through the same
-examples. When changing code - for example to make it run faster - you can run
-them to see if anything changed. This is how I work with them:
+\begin{wrapfigure}{R}{0.3\textwidth}
+    \begin{center}
+        \includesvg[width=0.28\textwidth]{img/roots.svg}
+    \end{center}
+    \caption{Models are rooted in empirical testing, whereas the implementation is rooted in unit tests. When porting a model, the same unit tests are re-used across languages.}\label{fig:roots}
+\end{wrapfigure}
+
+When programming algorithms, I always use a pen and paper to work through some very simple examples. In a unit test, you let the computer work through the same examples. When changing code - for example to make it run faster - you can run them to see if anything changed. This is how I work with them:
 
 \begin{itemize}
     \item If they fail, there was a bug somewhere: fix it and run again.
@@ -199,61 +192,66 @@ them to see if anything changed. This is how I work with them:
     \item If they fail and there was no bug, you've changed the algorithm: update tests accordingly.
 \end{itemize}
 
-In Test-driven development, the idea is to write unit tests before writing any
-code. I'm ambivalent to that: I think it's often fine to write code I know is
-correct, write a unit test and copy over the failed output into the
-\mintinline{rust}|assert_eq!(output, expected)| statement.
+In Test-driven development, the idea is to write unit tests before writing any code. I'm ambivalent to that: I think it's often fine to write code I know is correct, write a unit test and copy over the failed output into the
+\mintinline{rust}|assert_eq!(output, expected)| statement. I then check the generated output to see if it makes sense.
 
-This was the workflow for the rust code. Once a large enough portion was written and tested in rust, I added GTest to the C++ serial implementation with the exact same values. Matching the random number generator between C++ and Rust proved difficult, so a much simpler terrain generation: Increasing the height with array index was implemented. For unit tests this is fine: They are meant to be predictable and test program, rather than model accuracy. In general, I propose the following workflow:
+This was the workflow for the rust code. Once a large enough portion was written and tested in rust, I added GTest\footnote{I find this rather involved. The \href{https://google.github.io/googletest/quickstart-cmake.html\#set-up-a-project}{setup instructions} work well, but also compile unit tests for end-users. I don't want end users to also compile the tests, so I create a \texttt{tests/} folder in which I mirror the project structure. This folder has a \href{https://codeberg.org/feefladder/oxscape/src/commit/f4fc4f79f33f0d8884785b548849e701a37eb836/tests/CMakeLists.txt}{separate \texttt{CMakeLists.txt}} that gets \href{https://codeberg.org/feefladder/oxscape/src/commit/f4fc4f79f33f0d8884785b548849e701a37eb836/CMakeLists.txt\#L34}{conditionally included}. \href{https://github.com/openlandmap/scikit-map/blob/43555814495be6d99238c2bc9522fa40e04ee18c/CONTRIBUTING.md\#c-code}{Here} is a set of commands that I make work in most projects.} to the C++ serial implementation with the exact same values. Matching the random number generator between C++ and Rust proved difficult, so a much simpler terrain generation: Increasing the height with array index was implemented. For unit tests this is fine: They are meant to be predictable and test program, rather than empirical model accuracy. In general, I propose the following workflow:
 
 \begin{enumerate}
     \item Make the algorithm work
     \item Test it on a small (2x2 to 10x10) grid, make those unit tests
     \item verify the tests by hand
     \item (optional) Mark this implementation on a separate git branch
-    \item Make it run fast, keeping the same tests
+    \item Make it run fast, keeping the same test data.
 \end{enumerate}
 
-Finally, the port was verified to work, because the same exact values\footnote{Actually  testing exact float equality is overly strict, but it worked.} were used in both Rust and C++ tests. Additionally, unit tests can serve as rudimentary documentation both for external users and for developers when returning to the code after changes or refactoring.
+Finally, the port was verified to work, because the same exact values\footnote{Actually  testing exact float equality is overly strict, but it worked.} were used in both Rust and C++ tests.
+
+Then, the core logic was extracted into a functional style, where in stead of class methods, every step had its data input as function arguments, such as \mintinline{rust}|recvs(meta: &GridMeta, dem: &[f64], recvs: &mut [i8])|
+\footnote{Another option would be to have a \mintinline{rust}|fn compute_receivers(meta: &GridMeta, height: &[f64]) -> Vec<i8>| or \mintinline{rust}|fn compute_recvs(meta: &GridMeta, height: &[f64], recvs: Vec<i8>) -> Vec<i8>|, but a mutable reference (\mintinline{rust}|&mut [i8]|) does not allow the function to resize or replace the array. This keeps the model in control, rather than the function and allows arrays to be re-used between model steps. One place where I did \mintinline{rust}|&mut Vec<usize>| was in \mintinline{rust}|generate_order|, because the length of the resulting array was important metadata and could not be known beforehand. Calling \mintinline{rust}|v.clear()| and subsequent \mintinline{rust}|v.push()| is exactly the same as manually filling an array and keeping a counter\cite{fractalfirAnyWayMake2023}. One benefit is that the counter is kept as essential vector metadata, rather than a separate function argument. Most importantly, the function will not error if levels exceeds the expected size}
+, where \mintinline{rust}|GridMeta| is a tiny class to help with indexing and
+bounds-checking. This allowed every step to be tested in isolation: Rather than creating a class and running through every step leading up to the one of interest, this function can be provided inputs and the output verified.
+
+Additionally, unit tests can serve as rudimentary documentation both for external users and for developers when returning to old code.
 
 \subsection{Step 2: Adding parallelism}
 
 The main contribution of \cite{barnesAcceleratingFluvialIncision2019} was parallelism, which was not implemented yet. In C++ data-parallel code is run using OpenMP precompiler directives, as seen before. In Rust, this is generally done with \href{https://github.com/rayon-rs/rayon}{rayon}. Benchmarks suggest it provides performance competitive with but slightly below to OpenMP or Fortran code\cite{martinsNPBRustNASParallel2025}. In exchange, however, Rust and rayon provide strong memory safety guarantees, reducing the cognitive burden on a model developer.
 
-Thread safety remains a problem, however, since a programming language cannot change the hardware it runs on. Therefore, rust is overly strict in what it allows, such that the resulting program is certainly safe. For example, it is normally not allowed to simultaneously read and write data from the same array - such as the array of flow accumulation or height values: You are only allowed to simultaneously read from an array (multiple \mintinline{rust}|&arr|), or be the only one writing to it (single \mintinline{rust}|&mut arr|). This solves the problem of memory safety, but is overly strict in our case.
+To ensure memory safety, rust is overly strict in what it allows, such that the resulting program is certainly safe. For example, it is normally not allowed to simultaneously read and write data from the same array - such as the array of flow accumulation or height values: You are only allowed to simultaneously read from an array (multiple \mintinline{rust}|&arr|), or be the only one writing to it (single \mintinline{rust}|&mut arr|). This solves the problem of memory safety, but is overly strict in our case.
 
-Since we know what we're doing: We have a topological ordering of all indices, it is possible to relax these rules by invoking \textit{unsafe} rust. I visualize this as stepping down on the tower of weakenings (\cite{desiresTowerWeakeningsMemoryb}), where we gain flexibility at the cost of safety. All Rust code depends on Unsafe Rust. Unsafe code, however, is generally checked and exposed in a controlled way to eliminate Undefined Behaviour. Thus, the memory safety is a promise that can be relied upon in safe rust. We'll be writing unsafe rust so we'll have to uphold that promise: Using our code marked as safe there is no possible way to cause Undefined Behaviour.
+Since we know what we're doing: We have a topological ordering of all indices, it is possible to relax these rules by invoking \textit{unsafe} rust. \textit{unsafe} rust gives access to raw pointers and any code that could result in Undefined Behaviour. I visualize this as stepping down on the tower of weakenings (\cite{desiresTowerWeakeningsMemoryb}), where we gain flexibility at the cost of safety. All Rust code depends on Unsafe Rust. Unsafe code, however, is generally checked and exposed in a controlled way to eliminate Undefined Behaviour. Thus, the memory safety is a \textit{promise} that can be relied upon in safe rust. We'll be writing unsafe rust so we'll have to uphold that promise: Using our code marked as safe there is \textit{no possible way} to cause Undefined Behaviour.
 
-The first step is to make the serial code parallel, so we have to sidestep the compiler's guarantees. This results in the following implementation:
+The first step is to make the serial code parallel, so we have to sidestep the compiler's guarantees. Rust has many functions for splitting an array into e.g. chunks for parallel computation. These cannot be used here, because the access pattern given by \mintinline{rust}|levels| is more reminiscent of sprinkling icing on a cake than neatly chunking it. This results in the following implementation:
 
 \begin{minted}{rust}
-/// struct holding a mut pointer.
-/// It only exist so we can signal that it can be shared between threads
-/// (*mut i32) cannot be shared between threads
+/// (*mut i32) cannot be shared between threads.
+/// This struct allows us to shoot it between threads
+/// Ensuring safe landing is our responsibility 
 struct Bazooka(*mut i32);
 
 /// here we say references can be shared between threads
 /// This is under the very strict guarantee that we won't misuse it
+/// SAFETY: We will only ever read from and write to disjoint indices within a parallel region
 unsafe impl Sync for Bazooka {}
 
-/// it is not safe to use this function:
-/// You need to ensure levels, stack and donors align
+/// SAFETY: You need to ensure levels, stack and donors align
 /// so that reads and writes are disjoint
 pub unsafe fn accum(
     arr: &mut [i32],
     levels: &[usize],
     stack: &[isize],
-    donors: &[isize]
+    donors: &[isize] // indices of donors in arr
 ) {
     let ptr = Bazooka(arr.as_mut_ptr());
     // make a reference, so we only share the value by-reference
     let r = &ptr;
-    // SAFETY: do NOT use `arr` inside this closure, only `r` Also
-    // ∀c∈level:don[c]∉level∧rec[c]∉level That is: we can safely mutate the
-    // current cell, while reading its donors and receivers. Those are on
-    // other levels.
+    // SAFETY: do NOT use `arr` inside this closure, only `r`
+    // we can safely mutate the current cell
+    // while reading its donors and receivers.
+    // Those are on other levels.
     for level in levels.windows(2).map(|w| &stack[w[0]..w[1]]) {
-        level.into_iter().for_each(|idx| unsafe { // note the `unsafe`
+        level.into_par_iter().rev().for_each(|idx| unsafe { // note the `unsafe`
             let val = r.0.offset(donors[*idx as usize]).read();
             *r.0.offset(*idx) += val;
         });
@@ -261,21 +259,153 @@ pub unsafe fn accum(
 }
 \end{minted}
 
-An interesting case is the donors array, 
+A safe interface to this function is given in \href{https://codeberg.org/feefladder/oxscape/src/commit/f4fc4f79f33f0d8884785b548849e701a37eb836/rust/src/lib.rs\#L438}{the \mintinline{rust}|run(n_steps, meta, dem, params)| function}, where we ensure that receivers, donors, and levels are correctly generated for the model to be run. However, this only allows to run a single model, where ideally one could adapt what happens inside the graph traversal.
 
-\subsection{Step 3: Defining an abstraction}
+\subsection{Step 4: Defining an abstraction}
 
-Since graph traversal is paramount to erosion models, 
+Since graph traversal is paramount to landscape evolution models, the last requirement is to build an abstraction that can be used in safe rust for parallel graph traversal. In erosion interventions, tillage can be used to redirect flow paths or prepare the soil for seeding grass strips. This leaves the soil bare and vulnerable, so intermediate mulching can be applied. In that sense, this abstraction ensures that all steps are performed in-order, to minimize erosion risk, as visualized in figure \ref{fig:oxscape}.
+
+\begin{wrapfigure}{R}{0.3\textwidth}
+    \begin{center}
+        \includesvg[width=0.28\textwidth]{img/oxscape.svg}
+    \end{center}
+    \caption{Where intermediate mulching minimized erosion risk in interventions, oxscape encapsulates data access to avoid data races.}
+    \label{fig:oxscape}
+\end{wrapfigure}
+
+That means encapsulating \mintinline{rust}|donors|,\mintinline{rust}|stack|, \mintinline{rust}|levels| in an \mintinline{rust}|Order| struct and read and write access to the traversed array in a \mintinline{rust}|LevelAccessor| struct. That implementation (~300 lines) is too long to include, but here is some code that uses it:
+
+\begin{minted}{rust}
+pub fn accum(order: &Order, params: &Params, accum: &mut [f64]) {
+    // initialize with rainfall
+    accum.fill(params.cell_area);
+    // parallel graph traversal
+    order.for_lvls_top_down(accum, |a| {
+        *a.cell() += a.donors().iter().sum::<f64>();
+    });
+}
+
+pub fn run(nstep: usize, meta: &GridMeta, params: &Params, dem: &mut [f64]) -> Result<()> {
+    let mut acc = vec![0.0; meta.size];
+    let mut order = Order::empty(*meta);
+    for _ in 0..nstep {
+        order.reorder(dem, D8)?;
+        accum(&order, params, &mut acc);
+        add_uplift(params, dem);
+        erode(&order, params, &acc, dem);
+    }
+    Ok(())
+}
+\end{minted}
+
+As can be seen, no \mintinline{rust}|unsafe| is used. The intent of the \mintinline{rust}|accum()| implementation is immediately clear. The \mintinline{rust}|reorder(dem, D8)| function also leaves room for other flow metrics to be inserted (D4, D8, Rho4, Rho8). Implementing such a metric is marked \mintinline{rust}|unsafe|, because faulty flow directions can cause x-wrapping or out-of-bounds accesses. However, despite extensive testing I could not find an example "hostile" receivers array that leads to data races\footnote{These are also notoriously difficult to detect: Since they are Undefined Behaviour, most of the times the program just runs "normally" and even gives \href{https://codeberg.org/feefladder/oxscape/src/commit/f4fc4f79f33f0d8884785b548849e701a37eb836/playground/src/lib.rs\#L137}{deterministic results across runs}}. The solution would be \href{https://rust-fuzz.github.io/book/cargo-fuzz/structure-aware-fuzzing.html}{Fuzzing}\cite{goregaokarMitigatingUnderhandednessFuzzing2017} the memory safety invariant: Exhaustively testing all possible flow directions takes ~1 hour on a 3-by-3 grid, so fuzzing lets the computer generate random input until it finds a bug.
+
+% First, the model was adapted for multiple flow directions, specifically Dinf\cite{tarbotonNewMethodDetermination1997}. The Dinf code was ported from richdem\cite{RichDEM} with slight modifications. This would allow users to build erosion models with any flow metric, at the cost of some performance and memory use\footnote{Before, the receivers array was a \mintinline{rust}|Vec<i8>|, only encoding direction. Now it would be a \mintinline{rust}|Vec<[f64;8]>|, storing eight 64-bit floats per cell. The index encodes the direction and the value the proportion of flow. So a \mintinline{rust}|[0,0,0,0.5,0.5,0,0]| means half of the flow goes to \texttt{3} direction and the other half to the \texttt{4} direction (0-indexed)}.
+
+% Since each cell now could have multiple receivers, the topological sorting as described by \cite{barnesAcceleratingFluvialIncision2019} would add a cell multiple times, possibly in the same level. I conversed with ChatGPT on what could be the issue, found the \href{https://en.wikipedia.org/wiki/Topological_sorting#Parallel_algorithms}{pseudocode on wikipedia about parallel topological sorting}\cite{TopologicalSorting2025} and concluded that in a D8 topology, all cells have a single receiver and thus indegree 1. The solution was to add a counter on the number of processed receivers in each cell, and only add the cell to a level for the last receiver.
+
+\section{Results}
+
+To see if the abstraction introduced any overhead and compare my implementation to \cite{barnesAcceleratingFluvialIncision2019}, a \href{https://codeberg.org/feefladder/oxscape/src/commit/01d2cf5ef0565bd991f6bd3b2bdc10fa8ffc2f7e/rust/benches/run.rs}{benchmark} was created using criterion. These were run on an HP Envy quad-core laptop locked to 1.8GHz\footnote{\mintinline{bash}|sudo cpupower frequency-set -g userspace && sudo cpupower frequency-set -f 1.80GHz|} with 16GB of RAM.
+
+\begin{wrapfigure}{L}{0.4\textwidth}
+    \begin{center}
+        \includesvg[width=0.38\textwidth]{img/bench.svg}
+    \end{center}
+    \caption{Benchmark results comparing the bare Rust implementation, its safe abstraction and the baseline implementation by \cite{barnesAcceleratingFluvialIncision2019}}\label{fig:bench}
+\end{wrapfigure}
+
+As can be seen in figure \ref{fig:bench}, the abstraction is near-zero cost and both implementations outperform the reference. I think the abstraction is largely -but not completely- optimized away by the compiler due to inlining. If this library is used by an external project, \href{https://nnethercote.github.io/perf-book/build-configuration.html\#link-time-optimization}{enabling link-time optimization}\footnote{From what I've understood, \texttt{"thin"} should work well enough.} may be required to achieve similar results. I don't fully understand why my -almost identical- implementation outperforms the reference. This may be caused by the strong rust type system enabling more aggressive optimizations, the difference in compilers (GCC for reference and LLVM for rust) or the work-stealing nature of rayon.
+
+\section{Next steps and comparison with OpenLisem}
+
+blablabla library can be used anywhere blabla, keep it modular, maybe write python bindings but in Python you cannot insert a function or it would be horribly slow and the GIL will ruin everything, so actualy users need to write Rust (inlining, LTO) to be performant. Can be put in wasm (rayon-wasm) so possibly make a browser extension that reads like PDOK data. OpenLisem is empirically tested, oxscape not \ref{fig:next}. But OpenLisem is horrible to compile (obscure upstreams) and has no possible downstreams \ref{fig:catchment}. Either for OpenLisem or developing erosion models in general, the methods here (unit testing, encapsulation, modularization - plz explain modularization because that's actually a next step) should provide solid digital rooting that is currently missing - and CI/CD for rooting the build system, which is discussed next
 
 
 
-\begin{figure}
-    \includesvg[width=\textwidth]{img/catchment_blocks.svg}
+% 1. Reframe “next steps” as scope, not features
+
+% Open by positioning oxscape as a runtime / library, not a model:
+
+% usable “anywhere”
+
+% deliberately not a monolithic application
+% This frames everything that follows as consequences of that choice, not ambitions.
+
+% Key idea: portability and reuse are design constraints, not extras.
+
+% 2. Performance boundary → language boundary
+
+% Immediately explain why Rust is the intended extension surface:
+
+% Python bindings possible but structurally limited (GIL, call overhead)
+
+% real performance requires inlining + LTO
+
+% therefore: users write Rust for core logic
+
+% This avoids sounding dismissive of Python by making it a technical inevitability, not a preference.
+
+% Key idea: abstractions cross language boundaries; performance does not.
+
+% 3. Modularization as the actual “next step”
+
+% Introduce modularization explicitly as:
+
+% separating core algorithms from
+
+% interfaces (GUI, Python, WASM)
+
+% data sources (DEM formats, services)
+
+% You do not need to explain how — just name it as:
+
+% “structuring components so downstreams depend on the library, not vice versa.”
+
+% That single sentence defines modularization in a way erosion modelers will accept.
+
+% 4. Comparison with OpenLISEM via contrast, not critique
+
+% Use OpenLISEM as a foil, not a failure:
+
+% empirically validated ✔
+
+% difficult to compile, extend, or reuse ✘
+
+% no clear downstream ecosystem
+
+% This justifies Figure \ref{fig:catchment} visually, without restating it.
+
+% Key idea: validation without extensibility versus extensibility awaiting validation.
+
+% 5. Generalize beyond oxscape
+
+% End by widening the scope:
+
+% these practices apply to erosion models in general
+
+% unit testing, encapsulation, modularization as “digital rooting”
+
+% CI/CD as the mechanism to maintain that rooting
+
+% This makes the section methodological, not promotional.
+
+\begin{wrapfigure}{R}{0.4\textwidth}
+    \begin{center}
+        \includesvg[width=0.38\textwidth]{img/everything_nooitaf.svg}
+    \end{center}
+    \caption{Conceptual representation of oxscape: As a runtime rooted in unit tests, it pulls implementations of conceptual models towards empirically-tested GUI-based models. Under the influence of landscape evolution, these models have decreased stability.}\label{fig:next}
+\end{wrapfigure}
+
+\begin{wrapfigure}{L}{0.4\textwidth}
+    \begin{center}
+        \includesvg[width=0.38\textwidth]{img/catchment_blocks.svg}
+    \end{center}
     \caption{OpenLisem and its dependencies as a catchment. Possible downstream
     implementations are currently disconnected.}\label{fig:catchment}
-\end{figure}
+\end{wrapfigure}
 
-\section{OpenLisem Dependency management with Git}\label{subs:deps}
+\subsubsection{OpenLisem Dependency management with Git}\label{subs:deps}
 
 Git has three ways to add third-party repositories:
 \href{https://stackoverflow.com/questions/32407634/when-to-use-git-subtree}{Submodules
@@ -290,6 +420,27 @@ configuration is
 submodules are ruled out.
 
 To add the required branch to the main repository
+
+\section{Recommendations}
+
+\begin{itemize}
+    \item Use unit tests 
+    \item core functions as static, not class functions 
+    \item encapsulate possible data races (in classes/structs) 
+    \item publish core logic as a library 
+    \item use that library for downstream development, such as:
+    \begin{itemize}
+        \item GUI app or game (Qt/Bevy/Godot)
+        \item Python bindings for data scientists/Servers
+        \item In-browser models compiled to WebAssembly
+    \end{itemize}
+    \item Include modified/non-standard dependencies in the codebase
+    \item use Continuous Integration/Github Actions to verify:
+    \begin{itemize}
+        \item the build system across operating systems
+        \item unit tests
+    \end{itemize}
+\end{itemize}
 
 \printbibliography
 
