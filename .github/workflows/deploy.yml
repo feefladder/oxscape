@@ -1,0 +1,66 @@
+name: Build & Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - wasm  # Change if your default branch is different
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Checkout the repo
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2. Install Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20" # or whatever LTS you use
+
+      # 3. Install Rust (for wasm-pack)
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          profile: minimal
+          override: true
+
+      - name: Install wasm-pack
+        run: |
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+
+      # 4. Build the WASM module
+      - name: Build WASM
+        run: |
+          cd oxscape_wasm
+          wasm-pack build --target web
+          rm -rf ../web/oxscape-exhibit/src/simulation/pkg/
+          mv pkg/ ../web/oxscape-exhibit/src/simulation/
+
+      # 5. Install dependencies and build the Vue app
+      - name: Install dependencies
+        run: |
+          cd web/oxscape-exhibit
+          npm ci
+
+      - name: Build Vue app
+        run: |
+          cd web/oxscape-exhibit
+          npm run build
+          cp node_modules/coi-serviceworker/coi-serviceworker.js dist/
+
+      # 6. Deploy to GitHub Pages
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./web/oxscape-exhibit/dist
+
+      # 7. Add cross-origin isolation headers
+      - name: Add COI headers
+        run: |
+          echo "Cross-Origin-Opener-Policy: same-origin" > ./web/oxscape-exhibit/dist/_headers
+          echo "Cross-Origin-Embedder-Policy: require-corp" >> ./web/oxscape-exhibit/dist/_headers

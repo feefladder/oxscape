@@ -114,7 +114,7 @@ impl GridMeta {
     pub fn shift(&self, idx: usize, dir: u8) -> usize {
         (isize::try_from(idx).unwrap() + self.nshift[usize::from(dir)])
             .try_into()
-            .unwrap()
+            .expect("shifted value should fit in grid")
     }
 
     /// Reverse the direction of nshift:
@@ -154,6 +154,16 @@ impl GridMeta {
     #[inline]
     pub fn in_grid(&self, x: isize, y: isize) -> bool {
         x >= 0 && x < self.width as isize && y >= 0 && y < self.height as isize
+    }
+
+    #[inline]
+    pub fn inside(&self, i: isize) -> bool {
+        if i < 0 {
+            false
+        } else {
+            let (x,y) = self.i_to_xy(i.try_into().unwrap());
+            self.in_grid(x.try_into().unwrap(), y.try_into().unwrap())
+        }
     }
 
     #[inline]

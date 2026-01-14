@@ -1,6 +1,9 @@
 pub mod mflow;
 pub mod sflow;
 
+#[cfg(feature = "fill")]
+pub mod fill_deps;
+
 #[cfg(feature = "wasm_js")]
 use wasm_bindgen::prelude::*;
 

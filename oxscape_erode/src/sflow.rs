@@ -4,9 +4,14 @@ use oxscape::{GridMeta, Result, DR};
 use rayon::prelude::*;
 use crate::Params;
 
-pub fn add_uplift(params: &Params, dem: &mut [f64]) {
-    dem.par_iter_mut()
-        .for_each(|h| *h += params.ueq * params.dt);
+pub fn add_uplift(meta: &GridMeta, params: &Params, dem: &mut [f64]) {
+    dem.par_chunks_exact_mut(meta.width()).take(meta.height()-1).skip(1)
+        .for_each(|row| {
+            for h in row.iter_mut().take(meta.width()-1).skip(1){
+                *h += params.ueq * params.dt
+            }
+
+        });
 }
 
 pub fn accum(order: &Order, params: &Params, accum: &mut [f64]) {
@@ -44,7 +49,7 @@ pub fn run(nstep: usize, meta: &GridMeta, params: &Params, dem: &mut [f64]) -> R
     for _ in 0..nstep {
         order.reorder(dem, D8)?;
         accum(&order, params, &mut acc);
-        add_uplift(params, dem);
+        add_uplift(&order.meta(), params, dem);
         erode(&order, params, &acc, dem);
     }
     Ok(())

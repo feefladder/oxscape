@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import CanvasView from "./components/CanvasView.vue";
-import ColorRamp from "./components/ColorRamp.vue";
 import Controls from "./components/Controls.vue";
 </script>
 
 <template>
   <div class="app">
     <CanvasView class="canvas" />
-    <ColorRamp class="sidebar" />
     <Controls class="controls" />
   </div>
 </template>
@@ -25,12 +23,6 @@ import Controls from "./components/Controls.vue";
   grid-column: 1 / 2;
   grid-row: 1 / 2;
   background: #111;
-}
-
-.sidebar {
-  grid-column: 2 / 3;
-  grid-row: 1 / 2;
-  border-left: 1px solid #333;
 }
 
 .controls {

@@ -1,9 +1,10 @@
+use oxscape_erode::Params;
 use wasm_bindgen_test::*;
 use oxscape_wasm::Simulation;
 
 #[wasm_bindgen_test]
 fn test_create_sim_2() {
-    let sim = Simulation::random_dem(2, 2, 42).expect("could not make sim");
+    let sim = Simulation::new(2, 2, 42).expect("could not make sim");
     let res: Vec<f64>;
     unsafe {
         let dem = sim.dem();
@@ -32,7 +33,7 @@ fn test_create_sim_2() {
 
 #[wasm_bindgen_test]
 fn test_create_sim_3() {
-    let sim = Simulation::random_dem(3, 3, 44).expect("could not make sim");
+    let sim = Simulation::new(3, 3, 44).expect("could not make sim");
     let res: Vec<f64>;
     unsafe {
         let dem = sim.dem();
@@ -66,8 +67,10 @@ fn test_create_sim_3() {
 
 #[wasm_bindgen_test]
 fn test_step_sim_3() {
-    let mut sim = Simulation::random_dem(3, 3, 44).expect("could not make sim");
-    sim.params.cell_area = 10000.0;
+    let mut sim = Simulation::new(3, 3, 44).expect("could not make sim");
+    let mut params = Params::default();
+    params.cell_area = 10000.0;
+    sim.set_params(params);
     sim.step().unwrap();
     let res: Vec<f64>;
     unsafe {

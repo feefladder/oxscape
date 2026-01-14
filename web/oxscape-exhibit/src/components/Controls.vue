@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { useSimulation } from "../composables/useSimulation";
 
-const playing = ref(false);
-
-function toggle() {
-  playing.value = !playing.value;
-}
+const { isPlaying, isInitialized, toggle, step, reset } = useSimulation();
 </script>
 
 <template>
   <div class="controls">
-    <button @click="toggle">
-      {{ playing ? "Pause" : "Play" }}
+    <button @click="toggle" :disabled="!isInitialized">
+      {{ isPlaying ? "Pause" : "Play" }}
     </button>
-    <button>Step</button>
-    <button>Reset</button>
+    <button @click="step" :disabled="!isInitialized || isPlaying">
+      Step
+    </button>
+    <button @click="reset" :disabled="!isInitialized">
+      Reset
+    </button>
   </div>
 </template>
 
@@ -28,5 +28,10 @@ function toggle() {
 
 button {
   padding: 6px 12px;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>
