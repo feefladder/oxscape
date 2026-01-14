@@ -1,7 +1,11 @@
 pub mod mflow;
 pub mod sflow;
 
+#[cfg(feature = "wasm_js")]
+use wasm_bindgen::prelude::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "wasm_js", wasm_bindgen)]
 pub struct Params {
     pub keq: f64,
     pub neq: f64,

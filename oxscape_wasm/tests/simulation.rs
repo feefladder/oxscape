@@ -1,0 +1,104 @@
+use wasm_bindgen_test::*;
+use oxscape_wasm::Simulation;
+
+#[wasm_bindgen_test]
+fn test_create_sim_2() {
+    let sim = Simulation::random_dem(2, 2, 42).expect("could not make sim");
+    let res: Vec<f64>;
+    unsafe {
+        let dem = sim.dem();
+        res = (0..dem.length()).map(|i| dem.get_index(i)).collect();
+    }
+    assert_eq!(res, &[0.5265574090027738, 0.5427252099031439, 0.6364650991438949, 0.4059017582307767]);
+    let res: Vec<f64>;
+    unsafe {
+        let acc = sim.acc();
+        res = (0..acc.length()).map(|i| acc.get_index(i)).collect();
+    }
+    assert_eq!(res, &[0.0;4]);
+    let res: Vec<u32>;
+    unsafe {
+        let lvls = sim.levels();
+        res = (0..lvls.length()).map(|i| lvls.get_index(i)).collect();
+    }
+    assert_eq!(res, &[0,4]);
+    let res: Vec<u32>;
+    unsafe {
+        let stack = sim.stack();
+        res = (0..stack.length()).map(|i| stack.get_index(i)).collect();
+    }
+    assert_eq!(res, &[0,1,2,3]);
+}
+
+#[wasm_bindgen_test]
+fn test_create_sim_3() {
+    let sim = Simulation::random_dem(3, 3, 44).expect("could not make sim");
+    let res: Vec<f64>;
+    unsafe {
+        let dem = sim.dem();
+        res = (0..dem.length()).map(|i| dem.get_index(i)).collect();
+    }
+    assert_eq!(res, &[
+        0.4453615693979407, 0.7376823366239407, 0.7438186761993735,
+        0.9800697585740132, 0.765783067244993, 0.16214736725377565,
+        0.4762185996456645, 0.43800074672268297, 0.3882217737719029
+    ]);
+    let res: Vec<f64>;
+    unsafe {
+        let acc = sim.acc();
+        res = (0..acc.length()).map(|i| acc.get_index(i)).collect();
+    }
+    assert_eq!(res, &[0.0;9]);
+    let res: Vec<u32>;
+    unsafe {
+        let lvls = sim.levels();
+        res = (0..lvls.length()).map(|i| lvls.get_index(i)).collect();
+    }
+    assert_eq!(res, &[0,8,9]);
+    let res: Vec<u32>;
+    unsafe {
+        let stack = sim.stack();
+        res = (0..stack.length()).map(|i| stack.get_index(i)).collect();
+    }
+    assert_eq!(res, &[0,1,2,3,5,6,7,8,4]);
+}
+
+
+#[wasm_bindgen_test]
+fn test_step_sim_3() {
+    let mut sim = Simulation::random_dem(3, 3, 44).expect("could not make sim");
+    sim.params.cell_area = 10000.0;
+    sim.step().unwrap();
+    let res: Vec<f64>;
+    unsafe {
+        let dem = sim.dem();
+        res = (0..dem.length()).map(|i| dem.get_index(i)).collect();
+    }
+    assert_eq!(res, &[
+        2.4453615693979405, 2.7376823366239407, 2.7438186761993735,
+        2.9800697585740132, 2.4684294610634443, 2.162147367253776,
+        2.4762185996456645, 2.438000746722683, 2.388221773771903
+    ]);
+    let res: Vec<f64>;
+    unsafe {
+        let acc = sim.acc();
+        res = (0..acc.length()).map(|i| acc.get_index(i)).collect();
+    }
+    assert_eq!(res, &[
+        10000.0, 10000.0, 10000.0,
+        10000.0, 10000.0, 20000.0,
+        10000.0, 10000.0, 10000.0
+    ]);
+    let res: Vec<u32>;
+    unsafe {
+        let lvls = sim.levels();
+        res = (0..lvls.length()).map(|i| lvls.get_index(i)).collect();
+    }
+    assert_eq!(res, &[0,8,9]);
+    let res: Vec<u32>;
+    unsafe {
+        let stack = sim.stack();
+        res = (0..stack.length()).map(|i| stack.get_index(i)).collect();
+    }
+    assert_eq!(res, &[0,1,2,3,5,6,7,8,4]);
+}

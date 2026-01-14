@@ -1,12 +1,13 @@
 use crate::sflow::NO_FLOW;
 use crate::{DR, GridMeta};
+use num_traits::Float;
 use rayon::prelude::*;
 
 ///The receiver of a focal cell is the cell which receives the focal cells'
 ///flow. Here, we model the receiving cell as being the one connected to the
 ///focal cell by the steepest gradient. If there is no local gradient, then
 ///the special value NO_FLOW is assigned.
-pub fn compute_receivers(meta: &GridMeta, h: &[f64], rec: &mut [u8]) {
+pub fn compute_receivers<T: Float + From<f64> + Sync>(meta: &GridMeta, h: &[T], rec: &mut [u8]) {
     rec.fill(NO_FLOW);
     rec.par_chunks_exact_mut(meta.width)
         .enumerate()
@@ -16,11 +17,11 @@ pub fn compute_receivers(meta: &GridMeta, h: &[f64], rec: &mut [u8]) {
             for x in 1..meta.width - 1 {
                 let c: usize = y * meta.width + x;
 
-                let mut max_slope = 0.0;
+                let mut max_slope = T::zero();
                 let mut max_n = NO_FLOW;
 
                 for n in 0..8 {
-                    let slope = (h[c] - h[meta.shift(c, n)]) / DR[usize::from(n)];
+                    let slope = (h[c] - h[meta.shift(c, n)]) / DR[usize::from(n)].into();
                     if slope > max_slope {
                         max_slope = slope;
                         max_n = n;

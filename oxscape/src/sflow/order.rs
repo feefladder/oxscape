@@ -1,6 +1,6 @@
 use crate::{Bazooka, GridMeta, NOT_A_DONOR};
 use anyhow::{Result, anyhow};
-use num_traits::Zero;
+use num_traits::{Zero, Float};
 use rayon::prelude::*;
 
 pub const NO_FLOW: u8 = 9;
@@ -28,7 +28,7 @@ pub fn generate_boring_terrain(dem: &mut [f64], start: f64, delta: f64) {
 ///
 /// ```
 pub trait FlowMetric {
-    fn metric(&self, meta: &GridMeta, dem: &[f64], receivers: &mut [u8]) -> Result<()>;
+    fn metric<T: Float + From<f64> + Sync>(&self, meta: &GridMeta, dem: &[T], receivers: &mut [u8]) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -204,6 +204,14 @@ pub struct Order {
 }
 
 impl Order {
+    pub fn levels(&self) -> &[usize] {
+        &self.levels
+    }
+
+    pub fn stack(&self) -> &[usize] {
+        &self.stack
+    }
+
     pub fn n_levels(&self) -> usize {
         self.levels.len() - 1
     }
