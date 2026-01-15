@@ -10,6 +10,8 @@ use oxscape_erode::Params;
 use oxscape_erode::fill_deps::priority_flood_wei2018;
 use oxscape_erode::{sflow as esflow, mflow as emflow};
 
+use ordered_float::OrderedFloat;
+use rayon::prelude::*;
 use js_sys::{Float64Array,Uint32Array};
 
 use std::fmt::Debug;
@@ -24,6 +26,7 @@ pub use wasm_bindgen_rayon::init_thread_pool;
 #[wasm_bindgen]
 pub struct Simulation {
     dem: Vec<f64>,
+    prev_dem: Vec<f64>,
     acc: Vec<f64>,
     params: Params,
     order: Orders,
@@ -85,11 +88,12 @@ impl Simulation {
     #[wasm_bindgen(constructor)]
     pub fn new(width: usize, height: usize, seed: u32) -> Result<Self, JsValue> {
         let meta = GridMeta::new(width, height);
-        let dem = vec![NO_FLOW_GEN; meta.size()];
-        let acc = vec![0.0; meta.size()];
+        let dem = vec![0.0; meta.size()];
+        let prev_dem = vec![0.0; meta.size()];
+        let acc = vec![NO_FLOW_GEN; meta.size()];
 
         let order = Orders::MFlow(mflow::Order::empty(meta));
-        let mut res = Self { dem, acc, params: Params::default(), order };
+        let mut res = Self { dem, prev_dem, acc, params: Params::default(), order };
 
         res.random_dem(seed)?;
         res.order.reorder(&res.dem)?;
@@ -131,7 +135,7 @@ impl Simulation {
     }
 
     #[wasm_bindgen]
-    pub fn step(&mut self) -> Result<(), JsValue>{
+    pub fn step(&mut self) -> Result<f64, JsValue>{
         match &mut self.order {
             Orders::MFlow(o) => {
                 o.reorder(&self.dem, Dinf).map_err(|e| e.to_string())?;
@@ -146,7 +150,15 @@ impl Simulation {
                 esflow::erode(&o, &self.params, &self.acc, &mut self.dem);
             }
         }
-        Ok(())
+        let res = self.dem
+            .par_iter()
+            .zip(self.prev_dem.par_iter())
+            .map(|(cur, prev)| OrderedFloat((cur-prev).abs()))
+            .max()
+            .map(|v| v.into())
+            .ok_or("Should not step with empty array!".into());
+        self.prev_dem.copy_from_slice(&self.dem);
+        res
     }
 
     #[wasm_bindgen]

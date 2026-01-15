@@ -60,6 +60,7 @@ watch(stepRequested, () => {
 // Watch for reset requests
 watch(resetRequested, () => {
   sim.random_dem(Math.floor(Math.random()*42))
+  isPlaying.value = true
 });
 
 watch(mFlow, () => {
@@ -212,14 +213,13 @@ onMounted(async () => {
   // Render loop
   function renderLoop() {
     if (isPlaying.value) {
-      sim.step();
+      if (sim.step() < 0.01) {isPlaying.value = false};
 
-    // Update terrain if DEM changes during simulation
-    const newData = new Float32Array(sim.dem());
-    updateTerrain(newData, 25);
-
-    controls.update();
+      // Update terrain if DEM changes during simulation
+      const newData = new Float32Array(sim.dem());
+      updateTerrain(newData, 25);
     }
+    controls.update();
     renderer.render(scene, camera);
     animationId = requestAnimationFrame(renderLoop);
   }

@@ -54,7 +54,7 @@ pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {
                 df += term * params.neq * dh.powf(params.neq - 1.0);
             }
 
-            hnew -= f / df;
+            hnew -= f / (1.0+df);
             diff = hnew - hp;
             hp = hnew;
         }

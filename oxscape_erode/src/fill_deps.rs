@@ -62,11 +62,11 @@ fn process_pit(
             let spill = dem[ni];
             if spill > *node.z {
                 flag[ni] = true;
-                trace_q.push_back(CellZ { i: ni, z: spill.into() });
+                trace_q.push_back(CellZ { i: ni, z: spill.next_up().into() });
             } else {
                 flag[ni] = true;
-                dem[ni] = node.z.into();
-                depression_q.push_back(CellZ { i: ni, z: node.z });
+                dem[ni] = node.z.next_up().into();
+                depression_q.push_back(CellZ { i: ni, z: node.z.next_up().into() });
             }
         }
     }
@@ -139,7 +139,7 @@ pub fn priority_flood_wei2018(
             if spill <= *node.z {
                 dem[ni] = node.z.next_up();
                 flag[ni] = true;
-                depression_q.push_back(CellZ { i: ni, z: node.z });
+                depression_q.push_back(CellZ { i: ni, z: node.z.next_up().into() });
                 process_pit(dem, &mut flag, meta, &mut depression_q, &mut trace_q);
             } else {
                 flag[ni] = true;
@@ -167,9 +167,32 @@ mod test {
     }
 
     #[test]
+    #[rustfmt::skip]
     fn test_fill() {
         let mut dem = consts::DEM.clone();
         priority_flood_wei2018(&mut dem, &GridMeta::new(3,3)).unwrap();
-        assert_eq!(dem, [0.0;9]);
+        assert_eq!(dem, [
+            1.0, 1.0, 1.0,
+            1.0, 1.0000000000000002, 1.0,
+            1.0, 1.0, 1.0
+        ]);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_fill_two() {
+        let mut dem = [
+            1.0,0.5,1.0,
+            1.0,0.4,1.0,
+            1.0,0.4,1.0,
+            1.0,1.0,1.0,
+        ];
+        priority_flood_wei2018(&mut dem, &GridMeta::new(3,4)).unwrap();
+        assert_eq!(dem, [
+            1.0, 0.5, 1.0,
+            1.0, 0.5000000000000001, 1.0,
+            1.0, 0.5000000000000002, 1.0,
+            1.0, 1.0, 1.0
+        ]);
     }
 }
