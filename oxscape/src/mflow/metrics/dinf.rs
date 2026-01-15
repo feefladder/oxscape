@@ -1,4 +1,5 @@
 use crate::GridMeta;
+use crate::mflow::NO_FLOW_GEN;
 use rayon::prelude::*;
 use std::f64::consts::FRAC_PI_4;
 //Table 1 of Tarboton (1997)
@@ -31,7 +32,6 @@ const DY_E2: [isize; 8] = [-1, -1, -1, -1, 1, 1, 1, 1];
 const DX_E2: [isize; 8] = [-1, -1, 1, 1, 1, 1, -1, -1];
 // const AC: [f64; 8] = [2.0, 1.0, 1.0, 0.0, 4.0, 3.0, 3.0, 2.0];
 const AF: [f64; 8] = [-1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0];
-pub const NO_FLOW_GEN: f64 = 0.0;
 
 const fn nwrap(n: usize) -> usize {
     if n == 8 { 0 } else { n }
@@ -157,6 +157,28 @@ mod test {
             0, 2, 0,
             0, 0, 0,
         ])
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_dinf_3_random() {
+        let mut dem = [
+            0.0, 0.0, 0.0,
+            0.0, 0.5265574090027738, 0.0,
+            0.0, 0.0, 0.0
+        ];
+        let mut flows = vec![[NO_FLOW_GEN;8];9];
+        let mut nrec= vec![0;9];
+        fm_dinf(&GridMeta::new(3, 3), &dem, &mut flows, &mut nrec);
+        assert_eq!(dem,[
+            0.0, 0.0, 0.0,
+            0.0, 0.5265574090027738, 0.0,
+            0.0, 0.0, 0.0
+        ]);
+        assert_eq!(flows, [
+            [0.0; 8], [0.0; 8], [0.0; 8],
+            [0.0; 8], [1.0, 0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0; 8],
+            [0.0; 8], [0.0; 8], [0.0; 8]]);
     }
 
     #[test]

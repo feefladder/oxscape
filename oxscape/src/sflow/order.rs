@@ -195,6 +195,7 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
     }
 }
 
+#[derive(Debug)]
 pub struct Order {
     meta: GridMeta,
     donors: Vec<[usize; 8]>,

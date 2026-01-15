@@ -2,7 +2,8 @@
 members = [
     "oxscape",
     "oxscape_erode",
-    "oxscape_python", "oxscape_wasm",
+    "oxscape_python",
+    "oxscape_wasm",
 ]
 
 resolver = "2"

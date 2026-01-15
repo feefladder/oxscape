@@ -1,27 +1,83 @@
 use oxscape::GridMeta;
-use oxscape::sflow::Order;
+use oxscape::mflow::NO_FLOW_GEN;
+use oxscape::mflow::metrics::Dinf;
+use oxscape::sflow;
+use oxscape::mflow;
 use oxscape::sflow::metrics::D8;
+use oxscape_erode::sflow::add_uplift;
 use wasm_bindgen::prelude::*;
 use oxscape_erode::Params;
 use oxscape_erode::fill_deps::priority_flood_wei2018;
-use oxscape_erode::sflow::{add_uplift, erode, accum};
+use oxscape_erode::{sflow as esflow, mflow as emflow};
 
 use js_sys::{Float64Array,Uint32Array};
 
+use std::fmt::Debug;
 use rand::SeedableRng;
 use rand::Rng;
 
 pub use wasm_bindgen_rayon::init_thread_pool;
 
-#[cfg(not(target_pointer_width = "32"))]
-compile_error!("oxscape_wasm only supports 32-bit targets (wasm32).");
+// #[cfg(not(target_pointer_width = "32"))]
+// compile_error!("oxscape_wasm only supports 32-bit targets (wasm32).");
 
 #[wasm_bindgen]
 pub struct Simulation {
     dem: Vec<f64>,
     acc: Vec<f64>,
     params: Params,
-    order: Order,
+    order: Orders,
+}
+
+#[derive(Debug)]
+pub enum Metrics<S: sflow::FlowMetric, M: mflow::FlowMetric> {
+    SFlow(S),
+    MFlow(M)
+}
+
+#[derive(Debug)]
+pub enum Orders {
+    SFlow(sflow::Order),
+    MFlow(mflow::Order),
+}
+
+impl Orders {
+    pub fn meta(&self) -> &GridMeta {
+        match self {
+            Orders::SFlow(o) => o.meta(),
+            Orders::MFlow(o) => o.meta()
+        }
+    }
+
+    fn stack(&self) -> &[usize] {
+        match self {
+            Orders::SFlow(o) => o.stack(),
+            Orders::MFlow(o) => o.stack()
+        }
+    }
+
+    fn levels(&self) -> &[usize] {
+        match self {
+            Orders::SFlow(o) => o.levels(),
+            Orders::MFlow(o) => o.levels()
+        }
+    }
+
+    // fn reorder_metric<S: sflow::FlowMetric + Debug, M: mflow::FlowMetric + Debug>(&mut self, dem: &[f64], metric: Metrics<S, M>) -> Result<(), JsValue> {
+    //     match (self, metric) {
+    //         (Orders::SFlow(o), Metrics::SFlow(m)) => o.reorder(dem, m).map_err(|e| e.to_string().into()),
+    //         (Orders::MFlow(o), Metrics::MFlow(m)) => o.reorder(dem, m).map_err(|e| e.to_string().into()),
+    //         (o,m) => Err(format!("order {o:?} does not match metric {m:?}").into())
+    //     }
+    // }
+
+    fn reorder(&mut self, dem: &[f64]) -> Result<(), JsValue> {
+        match self {
+            Orders::MFlow(o) => o.reorder(dem, Dinf).map_err(|e| e.to_string().into()),
+            Orders::SFlow(o) => o.reorder(dem, D8).map_err(|e| e.to_string().into()),
+
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -29,13 +85,14 @@ impl Simulation {
     #[wasm_bindgen(constructor)]
     pub fn new(width: usize, height: usize, seed: u32) -> Result<Self, JsValue> {
         let meta = GridMeta::new(width, height);
-        let dem = vec![0.0f64; meta.size()];
+        let dem = vec![NO_FLOW_GEN; meta.size()];
         let acc = vec![0.0; meta.size()];
 
-        let order = Order::empty(meta);
+        let order = Orders::MFlow(mflow::Order::empty(meta));
         let mut res = Self { dem, acc, params: Params::default(), order };
 
-        res.random_dem(seed);
+        res.random_dem(seed)?;
+        res.order.reorder(&res.dem)?;
 
         Ok(res)
     }
@@ -66,11 +123,29 @@ impl Simulation {
     }
 
     #[wasm_bindgen]
+    pub fn switch(&mut self) {
+        self.order = match &self.order {
+            Orders::MFlow(o) => Orders::SFlow(sflow::Order::empty(*o.meta())),
+            Orders::SFlow(o) => Orders::MFlow(mflow::Order::empty(*o.meta())),
+        }
+    }
+
+    #[wasm_bindgen]
     pub fn step(&mut self) -> Result<(), JsValue>{
-        self.order.reorder(&self.dem, D8).map_err(|e| e.to_string())?;
-        accum(&self.order, &self.params, &mut self.acc);
-        add_uplift(&self.order.meta(), &self.params, &mut self.dem);
-        erode(&self.order, &self.params, &self.acc, &mut self.dem);
+        match &mut self.order {
+            Orders::MFlow(o) => {
+                o.reorder(&self.dem, Dinf).map_err(|e| e.to_string())?;
+                emflow::accum(&self.params, &o, &mut self.acc);
+                add_uplift(o.meta(), &self.params, &mut self.dem);
+                emflow::erode(&o, &self.params, &self.acc, &mut self.dem);
+            },
+            Orders::SFlow(o) => {
+                o.reorder(&self.dem, D8).map_err(|e| e.to_string())?;
+                esflow::accum(&o, &self.params, &mut self.acc);
+                add_uplift(o.meta(), &self.params, &mut self.dem);
+                esflow::erode(&o, &self.params, &self.acc, &mut self.dem);
+            }
+        }
         Ok(())
     }
 
@@ -116,6 +191,7 @@ impl Simulation {
 
 #[cfg(test)]
 mod tests {
+    use oxscape::NOT_A_DONOR;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::*;
@@ -126,6 +202,33 @@ mod tests {
         // safe Rust slice for internal testing
         let slice: &[f64] = &sim.dem;
         assert_eq!(slice.len(), 4);
+    }
+
+    #[test]
+    fn test_dinf() {
+        let sim = Simulation::new(3, 3, 42).unwrap();
+        assert_eq!(sim.dem, [
+            0.0, 0.0, 0.0,
+            0.0, 0.5265574090027738, 0.0,
+            0.0, 0.0, 0.0
+        ]);
+        match sim.order {
+            Orders::MFlow(o) => {
+                assert_eq!(o.flows(), [
+                    [0.0; 8], [0.0; 8], [0.0; 8],
+                    [0.0; 8], [1.0, 0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0; 8],
+                    [0.0; 8], [0.0; 8], [0.0; 8]
+                ]);
+                const N: usize = NOT_A_DONOR;
+                assert_eq!(o.donors(), [
+                    [N;8], [N;8], [N;8],
+                    [N, N, N, N, 4, N, N, N], [N;8], [N;8],
+                    [N;8], [N;8], [N;8]
+                ])
+            },
+            _ => unreachable!()
+        }
+
     }
 }
 

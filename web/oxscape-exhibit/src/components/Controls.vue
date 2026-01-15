@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useSimulation } from "../composables/useSimulation";
 
-const { isPlaying, isInitialized, toggle, step, reset } = useSimulation();
+const { isPlaying, isInitialized, mFlow, toggle, step, reset, switchMetric } = useSimulation();
 </script>
 
 <template>
@@ -15,6 +15,9 @@ const { isPlaying, isInitialized, toggle, step, reset } = useSimulation();
     <button @click="reset" :disabled="!isInitialized">
       Reset
     </button>
+    <button @click="switchMetric" :disabled="!isInitialized">
+    {{ mFlow ? "Dinf" :"D8" }}
+  </button>
   </div>
 </template>
 

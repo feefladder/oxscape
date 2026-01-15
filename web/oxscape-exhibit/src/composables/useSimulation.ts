@@ -1,9 +1,8 @@
-import { ref, shallowRef } from "vue";
-import type { Simulation } from "../simulation/pkg/oxscape_wasm.js";
+import { ref } from "vue";
 
 const isPlaying = ref(false);
 const isInitialized = ref(false);
-const simulation = shallowRef<Simulation | null>(null);
+const mFlow = ref(true);
 
 // Event emitters for actions
 const stepRequested = ref(0);
@@ -30,22 +29,15 @@ export function useSimulation() {
     resetRequested.value++;
   }
 
-  function setSimulation(sim: Simulation) {
-    simulation.value = sim;
-    isInitialized.value = true;
-  }
-
-  function clearSimulation() {
-    simulation.value = null;
-    isInitialized.value = false;
-    isPlaying.value = false;
+  function switchMetric() {
+    mFlow.value = !mFlow.value
   }
 
   return {
     // State
     isPlaying,
     isInitialized,
-    simulation,
+    mFlow,
     stepRequested,
     resetRequested,
 
@@ -55,7 +47,6 @@ export function useSimulation() {
     toggle,
     step,
     reset,
-    setSimulation,
-    clearSimulation,
+    switchMetric,
   };
 }

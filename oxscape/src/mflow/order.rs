@@ -86,10 +86,12 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
     }
 }
 
+#[derive(Debug)]
 pub struct Order {
     meta: GridMeta,
     flows: Vec<[f64; 8]>,
     donors: Vec<[usize; 8]>,
+    nrec: Vec<u8>,
     stack: Vec<usize>,
     levels: Vec<usize>,
 }
@@ -119,25 +121,31 @@ impl Order {
         self.levels.len() - 1
     }
 
+    pub fn empty(meta: GridMeta) -> Self {
+        Self {
+            meta,
+            flows: vec![[0.0; 8]; meta.size],
+            donors: vec![[0; 8]; meta.size],
+            nrec: vec![0; meta.size],
+            stack: vec![0; meta.size],
+            levels: Vec::with_capacity(2 * meta.width + 2 * meta.height),
+        }
+    }
+
+    pub fn reorder<M: FlowMetric>(&mut self, dem: &[f64], metric: M) -> Result<()> {
+        metric.metric(&self.meta, dem, &mut self.flows, &mut self.nrec)?;
+        compute_donors_mflow(&self.meta, &self.flows, &mut self.donors);
+        generate_order_mflow(&self.meta, &mut self.nrec, &self.donors, &mut self.stack, &mut self.levels);
+        Ok(())
+    }
+
     pub fn from_dem_trait<M: FlowMetric>(meta: GridMeta, dem: &[f64], metric: M) -> Result<Self> {
         if meta.size != dem.len() {
             return Err(anyhow!("meta dem mismatch"));
         }
-        let mut flows = vec![[0.0; 8]; meta.size];
-        let mut nrec = vec![0; meta.size];
-        metric.metric(&meta, dem, &mut flows, &mut nrec)?;
-        let mut donors = vec![[0; 8]; meta.size];
-        compute_donors_mflow(&meta, &flows, &mut donors);
-        let mut stack = vec![0; meta.size];
-        let mut levels = Vec::with_capacity(2 * meta.width + 2 * meta.height);
-        generate_order_mflow(&meta, &mut nrec, &donors, &mut stack, &mut levels);
-        Ok(Self {
-            meta,
-            flows,
-            donors,
-            stack,
-            levels,
-        })
+        let mut res = Self::empty(meta);
+        res.reorder(dem, metric)?;
+        Ok(res)
     }
 
     pub fn for_lvls_bottom_up<T: Zero + Copy + Send + Sync, F: Fn(&mut LevelAccessor<T>) + Sync>(
@@ -195,6 +203,26 @@ impl Order {
             });
         }
     }
+
+    pub fn levels(&self) -> &[usize]{
+        &self.levels
+    }
+
+    pub fn stack(&self) -> &[usize] {
+        &self.stack
+    }
+
+    pub fn meta(&self) -> &GridMeta {
+        &self.meta
+    }
+
+    pub fn flows(&self) -> &[[f64;8]] {
+        &self.flows
+    }
+
+    pub fn donors(&self) -> &[[usize;8]]{
+        &self.donors
+    }
 }
 
 #[cfg(test)]
@@ -209,6 +237,7 @@ mod test {
             // nothing flows anywhere, single level
             flows: vec![[NO_FLOW_GEN; 8]; 4],
             donors: vec![[NOT_A_DONOR; 8]; 4],
+            nrec: vec![0;4],
             stack: vec![0, 1, 2, 3],
             levels: vec![0, 4],
         };
@@ -255,6 +284,7 @@ mod test {
                 [N,N,N,N,1,N,N,N],[0,N,N,N,N,N,N,N],
                 [N,N,N,N,3,N,N,N],[2,N,N,N,N,N,N,N],
             ],
+            nrec: vec![0;4],
             stack: vec![
                 0, 2,
                 1, 3

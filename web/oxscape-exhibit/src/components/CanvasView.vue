@@ -16,6 +16,7 @@ const {
   stepRequested,
   resetRequested,
   isInitialized,
+  mFlow,
 } = useSimulation();
 
 let sim: Simulation;
@@ -45,16 +46,25 @@ function getTerrainColor(value: number): { r: number; g: number; b: number } {
 
 // Watch for step requests (manual stepping)
 watch(stepRequested, () => {
-  for (let i = 0; i < 10; i++) {
-    console.log(i)
     sim.step();
-  }
+
+    // Update terrain if DEM changes during simulation
+    const newData = new Float32Array(sim.dem());
+    updateTerrain(newData, 25);
+
+    controls.update();
+    renderer.render(scene, camera);
+
 });
 
 // Watch for reset requests
 watch(resetRequested, () => {
   sim.random_dem(Math.floor(Math.random()*42))
 });
+
+watch(mFlow, () => {
+  sim.switch()
+})
 
 function createTerrain(
   data: Float32Array,
@@ -203,15 +213,14 @@ onMounted(async () => {
   function renderLoop() {
     if (isPlaying.value) {
       sim.step();
-    }
 
     // Update terrain if DEM changes during simulation
     const newData = new Float32Array(sim.dem());
     updateTerrain(newData, 25);
 
     controls.update();
+    }
     renderer.render(scene, camera);
-
     animationId = requestAnimationFrame(renderLoop);
   }
 
