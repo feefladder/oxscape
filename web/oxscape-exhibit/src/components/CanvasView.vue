@@ -121,14 +121,17 @@ onMounted(async () => {
   }
   
 
-  const width = 500;
+  const width = 512;
   const height = width;
 
+  // create the simulation, this is the backbone and does the number-crunching
   sim = new Simulation(width, height, Math.floor(Math.random()*42));
   let params = sim.params;
   params.cell_area = 10000;
   params.ueq = 2e-6;
   sim.params = params;
+
+  // Terrain mesh. dem is a Float32Array that gets send as attributes to the GPU
   dem = new Float32Array(sim.dem());
   const geometry = new THREE.PlaneGeometry(
     width,
@@ -138,6 +141,9 @@ onMounted(async () => {
   );
   geometry.setAttribute("displacement", new THREE.BufferAttribute(dem, 1));
   
+  // Create basically any material and patch it with custom displacement code
+  // see https://github.com/tentone/geo-three/blob/884092748bf5d3c7857717296d4bbcdce0e8772f/source/nodes/MapHeightNodeShader.ts#L69
+  // and https://github.com/mrdoob/three.js/blob/dev/examples/webgl_custom_attributes.html
   const material = new THREE.MeshPhysicalMaterial({
     reflectivity: 0.5,
   });
@@ -147,13 +153,20 @@ onMounted(async () => {
     shader.uniforms.maxHeight = {value:1.0};
     shader.uniforms.colorRamp = { value: colorRampTexture };
 
+    // add uniforms and varyings to vertex shader
     shader.vertexShader = `
+      // scaling factor
       uniform float amplitude;
+      // clamp values for height shading
       uniform float minHeight;
       uniform float maxHeight;
 
+      // actual displacement from dem data
       attribute float displacement;
+
+      // the position for normal calculation
       varying vec3 vWorldPosition;
+      // normalized displacement for height shading
       varying float vDisplacement;
     ` + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace(
@@ -164,13 +177,6 @@ onMounted(async () => {
 
         transformed += position + amplitude * normal * vec3( displacement );
         vDisplacement = (displacement - minHeight) / (maxHeight - minHeight);
-      `
-    );
-    // Compute world position for fragment shader normal calculation
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <project_vertex>',
-      `
-        #include <project_vertex>
         vWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
       `
     );
@@ -198,8 +204,6 @@ onMounted(async () => {
       '#include <color_fragment>',
       `
         #include <color_fragment>
-        
-        
         diffuseColor.rgb = texture2D(colorRamp, vec2(vDisplacement,0.5)).rgb;
       `
     );
@@ -221,7 +225,7 @@ onMounted(async () => {
     0.1,
     2000
   );
-  camera.position.set(0, 200, 0);
+  camera.position.set(0, 512, 0);
   camera.lookAt(0, 0, 0);
 
   // Renderer
@@ -298,7 +302,7 @@ onUnmounted(() => {
   top: 0;
   position: fixed;
   width: 100%;
-  height: 80%;
+  height: 100%;
   overflow: hidden;
 }
 </style>

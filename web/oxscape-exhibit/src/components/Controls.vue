@@ -26,7 +26,7 @@ const { isPlaying, isInitialized, mFlow, toggle, step, reset, switchMetric } = u
   padding: 8px;
   display: flex;
   gap: 8px;
-  background: #181818;
+  background: fixed;
 }
 
 button {
