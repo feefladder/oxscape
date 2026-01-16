@@ -25,6 +25,7 @@ let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
 let controls: OrbitControls;
 let terrain: THREE.Mesh;
+let dem: Float32Array;
 let animationId: number;
 
 function getTerrainColor(value: number): { r: number; g: number; b: number } {
@@ -49,8 +50,7 @@ watch(stepRequested, () => {
     sim.step();
 
     // Update terrain if DEM changes during simulation
-    const newData = new Float32Array(sim.dem());
-    updateTerrain(newData, 25);
+    updateTerrain()
 
     controls.update();
     renderer.render(scene, camera);
@@ -67,86 +67,28 @@ watch(mFlow, () => {
   sim.switch()
 })
 
-function createTerrain(
-  data: Float32Array,
-  width: number,
-  height: number,
-  elevationScale: number = 50
-): THREE.Mesh {
-  const geometry = new THREE.PlaneGeometry(
-    width,
-    height,
-    width - 1,
-    height - 1
-  );
-  const vertices = geometry.attributes.position!.array as Float32Array;
+const vertexShader = `
+  uniform float amplitude;
 
-  // Find min/max for normalization
-  let minElev = Infinity;
-  let maxElev = -Infinity;
-  for (let i = 0; i < data.length; i++) {
-    minElev = Math.min(minElev, data[i]!);
-    maxElev = Math.max(maxElev, data[i]!);
+  attribute float displacement;
+
+  varying vec3 vNormal;
+  varying vec2 vUv;
+
+  void main() {
+
+    vNormal = normal;
+    vUv = ( 0.5 + amplitude ) * uv + vec2( amplitude );
+
+    vec3 newPosition = position + amplitude * normal * vec3( displacement );
+    gl_Position = projectionMatrix * modelViewMatrix * vec4( newPosition, 1.0 );
   }
+`
 
-  const colors = new Float32Array(data.length * 3);
 
-  for (let i = 0; i < data.length; i++) {
-    // Set elevation (Z) with scaling
-    vertices[i * 3 + 2] = data[i]! * elevationScale;
-
-    // Normalize elevation for color (0-1)
-    const normalized = (data[i]! - minElev) / (maxElev - minElev);
-
-    // Apply color gradient
-    const color = getTerrainColor(normalized);
-    colors[i * 3] = color.r;
-    colors[i * 3 + 1] = color.g;
-    colors[i * 3 + 2] = color.b;
-  }
-
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  geometry.computeVertexNormals();
-
-  const material = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    side: THREE.DoubleSide,
-    flatShading: false,
-  });
-
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.rotation.x = -Math.PI / 2;
-
-  return mesh;
-}
-
-function updateTerrain(data: Float32Array, elevationScale: number = 1): void {
-  if (!terrain) return;
-
-  const geometry = terrain.geometry as THREE.PlaneGeometry;
-  const vertices = geometry.attributes.position!.array as Float32Array;
-  const colors = geometry.attributes.color!.array as Float32Array;
-
-  let minElev = Infinity;
-  let maxElev = -Infinity;
-  for (let i = 0; i < data.length; i++) {
-    minElev = Math.min(minElev, data[i]!);
-    maxElev = Math.max(maxElev, data[i]!);
-  }
-
-  for (let i = 0; i < data.length; i++) {
-    vertices[i * 3 + 2] = data[i]! * elevationScale;
-
-    const normalized = (data[i]! - minElev) / (maxElev - minElev);
-    const color = getTerrainColor(normalized);
-    colors[i * 3] = color.r;
-    colors[i * 3 + 1] = color.g;
-    colors[i * 3 + 2] = color.b;
-  }
-
-  geometry.attributes.position!.needsUpdate = true;
-  geometry.attributes.color!.needsUpdate = true;
-  geometry.computeVertexNormals();
+function updateTerrain(): void {
+  dem.set(sim.dem())
+  terrain.geometry.attributes.displacement!.needsUpdate = true;
 }
 
 onMounted(async () => {
@@ -154,7 +96,7 @@ onMounted(async () => {
 
   // Thread pool initialization with the given number of threads
   // (pass `navigator.hardwareConcurrency` if you want to use all cores).
-  await initThreadPool(navigator.hardwareConcurrency);
+  await initThreadPool(Math.min(navigator.hardwareConcurrency, 8));
 
   const width = 250;
   const height = 250;
@@ -164,7 +106,24 @@ onMounted(async () => {
   params.cell_area = 10000;
   params.ueq = 2e-5;
   sim.params = params;
-  console.log(sim.width(), sim.height());
+  dem = new Float32Array(sim.dem());
+  const geometry = new THREE.PlaneGeometry(
+    width,
+    height,
+    width - 1,
+    height - 1
+  );
+  geometry.setAttribute("displacement", new THREE.BufferAttribute(dem, 1));
+  
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      "amplitude": {value: 10.0},
+    },
+    vertexShader: vertexShader,
+  });
+
+  terrain = new THREE.Mesh(geometry, material);
+  terrain.rotation.x = -Math.PI / 2;
 
   // Scene setup
   scene = new THREE.Scene();
@@ -201,8 +160,6 @@ onMounted(async () => {
   scene.add(directionalLight);
 
   // Create initial terrain
-  const data = new Float32Array(sim.dem());
-  terrain = createTerrain(data, width, height, 50);
   scene.add(terrain);
 
   isInitialized.value = true
@@ -214,10 +171,7 @@ onMounted(async () => {
   function renderLoop() {
     if (isPlaying.value) {
       if (sim.step() < 0.01) {isPlaying.value = false};
-
-      // Update terrain if DEM changes during simulation
-      const newData = new Float32Array(sim.dem());
-      updateTerrain(newData, 25);
+      updateTerrain();
     }
     controls.update();
     renderer.render(scene, camera);
