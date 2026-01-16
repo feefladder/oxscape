@@ -1,0 +1,15 @@
+[package]
+name = "oxscape_tui"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+homepage = "https://codeberg.org/feefladder/oxscape/"
+repository = "https://codeberg.org/feefladder/oxscape/"
+description = "Rust port of fastscape implicit stream-power law landscape evolution model"
+
+[dependencies]
+color-eyre = "0.6.5"
+crossterm = "0.29.0"
+oxscape = {version = "0.1", path = "../oxscape"}
+ratatui = "0.30.0"
+

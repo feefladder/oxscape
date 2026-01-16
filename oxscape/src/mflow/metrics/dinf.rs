@@ -50,6 +50,8 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
         .par_chunks_exact_mut(meta.width())
         .zip(nrec.par_chunks_exact_mut(meta.width()))
         .enumerate()
+        // we ignore the edge of the grid to prevent accessing out-of-bounds..
+        // that's actually bad for real dems... TODO: fix
         .take(meta.height() - 1)
         .skip(1)
         .for_each(|(y, (row, recs))| {
@@ -64,8 +66,10 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
                 for i in 0..8 {
                     //Is is assumed that cells with a value of NoData have very negative
                     //elevations with the result that they draw flow off of the grid.
+                    // TODO: process nodata cells
 
-                    //Choose elevations based on Table 1 of Tarboton (1997), Barnes TODO
+                    //Choose elevations based on Table 1 of Tarboton (1997),
+                    // this is a triangle
                     let e0: f64 = h[n];
                     let e1: f64 =
                         h[(n as isize + DX_E1[i] + DY_E1[i] * meta.width() as isize) as usize];
@@ -97,7 +101,6 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
 
                 // Some problem; probably a NaN
                 if imax == 9 {
-                    println!("help! {x},{y},{n}");
                     return;
                 }
 
@@ -141,22 +144,103 @@ mod test {
     #[rustfmt::skip]
     fn test_dinf_3() {
         let meta = &GridMeta::new(3, 3);
-        let mut props = vec![[NO_FLOW_GEN; 8]; meta.size];
+        let mut flows = vec![[NO_FLOW_GEN; 8]; meta.size];
         let mut recs = vec![2; meta.size];
 
-        fm_dinf(&meta, &consts::H_3, &mut props, &mut recs);
+        fm_dinf(&meta, &consts::H_3, &mut flows, &mut recs);
         for x in 1..2 {
             for y in 1..2 {
                 println!("({x},{y})");
                 let i = meta.xy_to_i(x, y);
-                assert_eq!(props[i], consts::DINF_3);
+                assert_eq!(flows[i], consts::DINF_3);
             }
         }
+        // also check that the edge is 0.0
+        assert_eq!(flows, &[
+            [0.0;8], [0.0;8], [0.0;8],
+            [0.0;8], [0.0, 0.590334470601733, 0.40966552939826695, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0;8],
+            [0.0;8], [0.0;8], [0.0;8]
+        ]);
+        // now check all rotated versions
+        fm_dinf(&meta, &[
+            6.0,3.0,0.0,
+            7.0,4.0,1.0,
+            8.0,5.0,2.0,
+        ], &mut flows, &mut recs);
+        assert_eq!(flows[4], [0.0, 0.0, 0.0, 0.590334470601733, 0.40966552939826695, 0.0, 0.0, 0.0]);
+        fm_dinf(&meta, &[
+            8.0,7.0,6.0,
+            5.0,4.0,3.0,
+            2.0,1.0,0.0,
+        ], &mut flows, &mut recs);
+        assert_eq!(flows[4], [0.0, 0.0, 0.0, 0.0, 0.0, 0.590334470601733, 0.40966552939826695, 0.0]);
+        fm_dinf(&meta, &[
+            2.0,5.0,8.0,
+            1.0,4.0,7.0,
+            0.0,3.0,6.0,
+        ], &mut flows, &mut recs);
+        assert_eq!(flows[4], [0.40966552939826695, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.590334470601733]);
         assert_eq!(recs, &[
             0, 0, 0,
             0, 2, 0,
             0, 0, 0,
         ])
+    }
+
+    #[test]
+    /// Check all directions single-flow
+    fn test_dinf_dirs() {
+        const META: &GridMeta = &GridMeta::new(3, 3);
+        let flows = &mut [[NO_FLOW_GEN; 8]; META.size];
+        let nrec = &mut [2; META.size];
+        fm_dinf(META, &[
+            1.0,1.0,1.0,
+            0.0,0.5,1.0,
+            1.0,1.0,1.0,
+        ], flows, nrec);
+        assert_eq!(flows[4], [1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]);
+        fm_dinf(META, &[
+            0.0,1.0,1.0,
+            1.0,0.5,1.0,
+            1.0,1.0,1.0,
+        ], flows, nrec);
+        assert_eq!(flows[4], [0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0]);
+        fm_dinf(META, &[
+            1.0,0.0,1.0,
+            1.0,0.5,1.0,
+            1.0,1.0,1.0,
+        ], flows, nrec);
+        assert_eq!(flows[4], [0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0]);
+        fm_dinf(META, &[
+            1.0,1.0,0.0,
+            1.0,0.5,1.0,
+            1.0,1.0,1.0,
+        ], flows, nrec);
+        assert_eq!(flows[4], [0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0]);
+        fm_dinf(META, &[
+            1.0,1.0,1.0,
+            1.0,0.5,0.0,
+            1.0,1.0,1.0,
+        ], flows, nrec);
+        assert_eq!(flows[4], [0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0]);
+        fm_dinf(META, &[
+            1.0,1.0,1.0,
+            1.0,0.5,1.0,
+            1.0,1.0,0.0,
+        ], flows, nrec);
+        assert_eq!(flows[4], [0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0]);
+        fm_dinf(META, &[
+            1.0,1.0,1.0,
+            1.0,0.5,1.0,
+            1.0,0.0,1.0,
+        ], flows, nrec);
+        assert_eq!(flows[4], [0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0]);
+        fm_dinf(META, &[
+            1.0,1.0,1.0,
+            1.0,0.5,1.0,
+            0.0,1.0,1.0,
+        ], flows, nrec);
+        assert_eq!(flows[4], [0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0]);
     }
 
     #[test]
@@ -168,33 +252,33 @@ mod test {
             0.0, 0.0, 0.0
         ];
         let mut flows = vec![[NO_FLOW_GEN;8];9];
-        let mut nrec= vec![0;9];
+        let mut nrec= [0;9];
         fm_dinf(&GridMeta::new(3, 3), &dem, &mut flows, &mut nrec);
-        assert_eq!(dem,[
-            0.0, 0.0, 0.0,
-            0.0, 0.5265574090027738, 0.0,
-            0.0, 0.0, 0.0
-        ]);
         assert_eq!(flows, [
             [0.0; 8], [0.0; 8], [0.0; 8],
             [0.0; 8], [1.0, 0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0; 8],
-            [0.0; 8], [0.0; 8], [0.0; 8]]);
+            [0.0; 8], [0.0; 8], [0.0; 8]
+        ]);
+        assert_eq!(nrec, [
+            0,0,0,
+            0,1,0,
+            0,0,0
+        ]);
     }
 
     #[test]
     #[rustfmt::skip]
     fn test_dinf_4() {
         let meta = &GridMeta::new(4, 4);
-        let mut props = vec![[0.0; 8]; meta.size];
+        let mut flows = vec![[0.0; 8]; meta.size];
         let mut nrec = vec![2; meta.size];
-        fm_dinf(&meta, &consts::H_4, &mut props, &mut nrec);
-        for x in 1..meta.width - 1 {
-            for y in 1..meta.height - 1 {
-                println!("({x},{y})");
-                let i = meta.xy_to_i(x, y);
-                assert_eq!(props[i], consts::DINF_3);
-            }
-        }
+        fm_dinf(&meta, &consts::H_4, &mut flows, &mut nrec);
+        assert_eq!(flows, &[
+            [0.0;8], [0.0;8], [0.0;8], [0.0;8],
+            [0.0;8], [0.0, 0.590334470601733, 0.40966552939826695, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.590334470601733, 0.40966552939826695, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0;8],
+            [0.0;8], [0.0, 0.590334470601733, 0.40966552939826695, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.590334470601733, 0.40966552939826695, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0;8],
+            [0.0;8], [0.0;8], [0.0;8], [0.0;8]
+        ]);
         assert_eq!(nrec, &[
             0, 0, 0, 0,
             0, 2, 2, 0,
