@@ -73,7 +73,7 @@ impl GridMeta {
         self.height
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         self.size
     }
 
