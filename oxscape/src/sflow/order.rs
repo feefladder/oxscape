@@ -1,6 +1,6 @@
 use crate::{Bazooka, GridMeta, NOT_A_DONOR};
 use anyhow::{Result, anyhow};
-use num_traits::{Zero, Float};
+use num_traits::{Float, Zero};
 use rayon::prelude::*;
 
 pub const NO_FLOW: u8 = 9;
@@ -28,7 +28,12 @@ pub fn generate_boring_terrain(dem: &mut [f64], start: f64, delta: f64) {
 ///
 /// ```
 pub trait FlowMetric {
-    fn metric<T: Float + From<f64> + Sync>(&self, meta: &GridMeta, dem: &[T], receivers: &mut [u8]) -> Result<()>;
+    fn metric<T: Float + From<f64> + Sync>(
+        &self,
+        meta: &GridMeta,
+        dem: &[T],
+        receivers: &mut [u8],
+    ) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -46,7 +51,10 @@ fn compute_donors(meta: &GridMeta, rec: &[u8], donor: &mut [[usize; 8]]) {
     }
 }
 
+/// parallelly compute donors.
 fn compute_donors_par(meta: &GridMeta, rec: &[u8], donors: &mut [[usize; 8]]) {
+    // In the single-flow case, it's more efficient to iterate receivers
+    // because we don't have to check all neighbours of a donor
     assert_eq!(donors.len(), meta.size);
     donors.fill([NOT_A_DONOR; 8]);
     // cast &mut [[usize;8]] to &mut [usize] so we can access cell's directions
@@ -54,7 +62,7 @@ fn compute_donors_par(meta: &GridMeta, rec: &[u8], donors: &mut [[usize; 8]]) {
     let d_usize: &mut [usize] = bytemuck::cast_slice_mut(donors);
     let b = Bazooka(d_usize.as_mut_ptr());
     let r = &b;
-    rec.iter().enumerate().for_each(|(idx, dir)| {
+    rec.par_iter().enumerate().for_each(|(idx, dir)| {
         if *dir == NO_FLOW {
             return;
         }
@@ -63,7 +71,8 @@ fn compute_donors_par(meta: &GridMeta, rec: &[u8], donors: &mut [[usize; 8]]) {
         let n: usize = meta.shift(idx, *dir);
         // bounds check
         assert!(n < meta.size);
-        // SAFETY: we are the only cell from this direction
+        // SAFETY: we are the only cell from this direction.
+        //
         unsafe {
             *r.0.add(n * 8 + GridMeta::rev(usize::from(*dir))) = idx;
         }

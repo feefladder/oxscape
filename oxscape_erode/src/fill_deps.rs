@@ -1,8 +1,7 @@
-use std::collections::{BinaryHeap, VecDeque};
-use std::cmp::Ordering;
 use ordered_float::OrderedFloat;
 use oxscape::{GridMeta, Result};
-
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, VecDeque};
 
 #[derive(Debug, Clone, Copy)]
 struct CellZ {
@@ -39,7 +38,10 @@ fn init_priority_queue(
             continue;
         }
         if meta.is_edge(i) {
-            pq.push(CellZ { i, z: dem[i].into() });
+            pq.push(CellZ {
+                i,
+                z: dem[i].into(),
+            });
             flag[i] = true;
         }
     }
@@ -62,11 +64,17 @@ fn process_pit(
             let spill = dem[ni];
             if spill > *node.z {
                 flag[ni] = true;
-                trace_q.push_back(CellZ { i: ni, z: spill.next_up().into() });
+                trace_q.push_back(CellZ {
+                    i: ni,
+                    z: spill.next_up().into(),
+                });
             } else {
                 flag[ni] = true;
                 dem[ni] = node.z.next_up().into();
-                depression_q.push_back(CellZ { i: ni, z: node.z.next_up().into() });
+                depression_q.push_back(CellZ {
+                    i: ni,
+                    z: node.z.next_up().into(),
+                });
             }
         }
     }
@@ -91,7 +99,10 @@ fn process_trace_queue(
 
             if dem[ni] > *node.z {
                 flag[ni] = true;
-                trace_q.push_back(CellZ { i: ni, z: dem[ni].into() });
+                trace_q.push_back(CellZ {
+                    i: ni,
+                    z: dem[ni].into(),
+                });
             } else {
                 if d < index_threshold {
                     potential_q.push_back(node);
@@ -114,10 +125,7 @@ fn process_trace_queue(
     }
 }
 
-pub fn priority_flood_wei2018(
-    dem: &mut [f64],
-    meta: &GridMeta,
-) -> Result<()> {
+pub fn priority_flood_wei2018(dem: &mut [f64], meta: &GridMeta) -> Result<()> {
     meta.check_dem(dem)?;
 
     let mut flag = vec![false; meta.size()];
@@ -129,7 +137,9 @@ pub fn priority_flood_wei2018(
 
     while let Some(node) = pq.pop() {
         for d in 0..8 {
-            if !meta.inside(isize::try_from(node.i).unwrap() + meta.nshift()[d]) {continue;}
+            if !meta.inside(isize::try_from(node.i).unwrap() + meta.nshift()[d]) {
+                continue;
+            }
             let ni = meta.shift(node.i, d as u8);
             if flag[ni] {
                 continue;
@@ -139,11 +149,17 @@ pub fn priority_flood_wei2018(
             if spill <= *node.z {
                 dem[ni] = node.z.next_up();
                 flag[ni] = true;
-                depression_q.push_back(CellZ { i: ni, z: node.z.next_up().into() });
+                depression_q.push_back(CellZ {
+                    i: ni,
+                    z: node.z.next_up().into(),
+                });
                 process_pit(dem, &mut flag, meta, &mut depression_q, &mut trace_q);
             } else {
                 flag[ni] = true;
-                trace_q.push_back(CellZ { i: ni, z: spill.into() });
+                trace_q.push_back(CellZ {
+                    i: ni,
+                    z: spill.into(),
+                });
             }
 
             process_trace_queue(dem, &mut flag, meta, &mut trace_q, &mut pq);

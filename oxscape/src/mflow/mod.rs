@@ -16,9 +16,6 @@ pub fn compute_donors_mflow(meta: &GridMeta, flows: &[[f64; 8]], donor: &mut [[u
                 continue;
             }
             let i_rec = meta.shift(i, n.try_into().unwrap());
-            // 1 2 3  0->4 1->5 2->6 3->7
-            // 0 x 4  4->0 5->1 6->2 7->3
-            // 7 6 5  so +4%7
             if flows[i_rec][GridMeta::rev(n)] != NO_FLOW_GEN {
                 don[n] = i_rec;
             }
@@ -177,6 +174,7 @@ pub(crate) mod test {
         assert_eq!(lvls, levels);
         assert_eq!(s, stack);
         for l in 0..lvls.len()-1 {
+            println!("{:?}",&s[lvls[l]..lvls[l+1]]);
             assert_eq!(s[lvls[l]..lvls[l+1]], stack[levels[l]..levels[l+1]]);
         }
     }

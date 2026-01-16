@@ -1,16 +1,17 @@
+use crate::Params;
 use oxscape::sflow::Order;
 use oxscape::sflow::metrics::D8;
-use oxscape::{GridMeta, Result, DR};
+use oxscape::{DR, GridMeta, Result};
 use rayon::prelude::*;
-use crate::Params;
 
 pub fn add_uplift(meta: &GridMeta, params: &Params, dem: &mut [f64]) {
-    dem.par_chunks_exact_mut(meta.width()).take(meta.height()-1).skip(1)
+    dem.par_chunks_exact_mut(meta.width())
+        .take(meta.height() - 1)
+        .skip(1)
         .for_each(|row| {
-            for h in row.iter_mut().take(meta.width()-1).skip(1){
+            for h in row.iter_mut().take(meta.width() - 1).skip(1) {
                 *h += params.ueq * params.dt
             }
-
         });
 }
 

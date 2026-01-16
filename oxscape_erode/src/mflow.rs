@@ -1,6 +1,6 @@
 use crate::Params;
 use oxscape::DR;
-use oxscape::mflow::{Order, NO_FLOW_GEN};
+use oxscape::mflow::{NO_FLOW_GEN, Order};
 
 pub fn accum(params: &Params, order: &Order, accum: &mut [f64]) {
     // initialize to cell area
@@ -14,7 +14,6 @@ pub fn accum(params: &Params, order: &Order, accum: &mut [f64]) {
         *v.cell() = sum;
     })
 }
-
 
 pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {
     order.for_lvls_bottom_up(dem, |a| {
@@ -54,7 +53,7 @@ pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {
                 df += term * params.neq * dh.powf(params.neq - 1.0);
             }
 
-            hnew -= f / (1.0+df);
+            hnew -= f / (1.0 + df);
             diff = hnew - hp;
             hp = hnew;
         }
@@ -62,4 +61,3 @@ pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {
         *a.cell() = hnew;
     });
 }
-

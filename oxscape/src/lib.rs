@@ -161,7 +161,7 @@ impl GridMeta {
         if i < 0 {
             false
         } else {
-            let (x,y) = self.i_to_xy(i.try_into().unwrap());
+            let (x, y) = self.i_to_xy(i.try_into().unwrap());
             self.in_grid(x.try_into().unwrap(), y.try_into().unwrap())
         }
     }

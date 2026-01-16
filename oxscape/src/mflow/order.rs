@@ -135,7 +135,13 @@ impl Order {
     pub fn reorder<M: FlowMetric>(&mut self, dem: &[f64], metric: M) -> Result<()> {
         metric.metric(&self.meta, dem, &mut self.flows, &mut self.nrec)?;
         compute_donors_mflow(&self.meta, &self.flows, &mut self.donors);
-        generate_order_mflow(&self.meta, &mut self.nrec, &self.donors, &mut self.stack, &mut self.levels);
+        generate_order_mflow(
+            &self.meta,
+            &mut self.nrec,
+            &self.donors,
+            &mut self.stack,
+            &mut self.levels,
+        );
         Ok(())
     }
 
@@ -204,7 +210,7 @@ impl Order {
         }
     }
 
-    pub fn levels(&self) -> &[usize]{
+    pub fn levels(&self) -> &[usize] {
         &self.levels
     }
 
@@ -216,11 +222,11 @@ impl Order {
         &self.meta
     }
 
-    pub fn flows(&self) -> &[[f64;8]] {
+    pub fn flows(&self) -> &[[f64; 8]] {
         &self.flows
     }
 
-    pub fn donors(&self) -> &[[usize;8]]{
+    pub fn donors(&self) -> &[[usize; 8]] {
         &self.donors
     }
 }
@@ -237,7 +243,7 @@ mod test {
             // nothing flows anywhere, single level
             flows: vec![[NO_FLOW_GEN; 8]; 4],
             donors: vec![[NOT_A_DONOR; 8]; 4],
-            nrec: vec![0;4],
+            nrec: vec![0; 4],
             stack: vec![0, 1, 2, 3],
             levels: vec![0, 4],
         };

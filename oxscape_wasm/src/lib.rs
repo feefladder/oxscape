@@ -1,22 +1,22 @@
 use oxscape::GridMeta;
+use oxscape::mflow;
 use oxscape::mflow::NO_FLOW_GEN;
 use oxscape::mflow::metrics::Dinf;
 use oxscape::sflow;
-use oxscape::mflow;
 use oxscape::sflow::metrics::D8;
-use oxscape_erode::sflow::add_uplift;
-use wasm_bindgen::prelude::*;
 use oxscape_erode::Params;
 use oxscape_erode::fill_deps::priority_flood_wei2018;
-use oxscape_erode::{sflow as esflow, mflow as emflow};
+use oxscape_erode::sflow::add_uplift;
+use oxscape_erode::{mflow as emflow, sflow as esflow};
+use wasm_bindgen::prelude::*;
 
+use js_sys::{Float64Array, Uint32Array};
 use ordered_float::OrderedFloat;
 use rayon::prelude::*;
-use js_sys::{Float64Array,Uint32Array};
 
-use std::fmt::Debug;
-use rand::SeedableRng;
 use rand::Rng;
+use rand::SeedableRng;
+use std::fmt::Debug;
 
 pub use wasm_bindgen_rayon::init_thread_pool;
 
@@ -35,7 +35,7 @@ pub struct Simulation {
 #[derive(Debug)]
 pub enum Metrics<S: sflow::FlowMetric, M: mflow::FlowMetric> {
     SFlow(S),
-    MFlow(M)
+    MFlow(M),
 }
 
 #[derive(Debug)]
@@ -48,21 +48,21 @@ impl Orders {
     pub fn meta(&self) -> &GridMeta {
         match self {
             Orders::SFlow(o) => o.meta(),
-            Orders::MFlow(o) => o.meta()
+            Orders::MFlow(o) => o.meta(),
         }
     }
 
     fn stack(&self) -> &[usize] {
         match self {
             Orders::SFlow(o) => o.stack(),
-            Orders::MFlow(o) => o.stack()
+            Orders::MFlow(o) => o.stack(),
         }
     }
 
     fn levels(&self) -> &[usize] {
         match self {
             Orders::SFlow(o) => o.levels(),
-            Orders::MFlow(o) => o.levels()
+            Orders::MFlow(o) => o.levels(),
         }
     }
 
@@ -78,7 +78,6 @@ impl Orders {
         match self {
             Orders::MFlow(o) => o.reorder(dem, Dinf).map_err(|e| e.to_string().into()),
             Orders::SFlow(o) => o.reorder(dem, D8).map_err(|e| e.to_string().into()),
-
         }
     }
 }
@@ -93,7 +92,13 @@ impl Simulation {
         let acc = vec![NO_FLOW_GEN; meta.size()];
 
         let order = Orders::MFlow(mflow::Order::empty(meta));
-        let mut res = Self { dem, prev_dem, acc, params: Params::default(), order };
+        let mut res = Self {
+            dem,
+            prev_dem,
+            acc,
+            params: Params::default(),
+            order,
+        };
 
         res.random_dem(seed)?;
         res.order.reorder(&res.dem)?;
@@ -104,14 +109,15 @@ impl Simulation {
     #[wasm_bindgen]
     pub fn random_dem(&mut self, seed: u32) -> Result<(), JsValue> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
-        self.dem.chunks_exact_mut(self.order.meta().width())
-        .take(self.order.meta().height()-1)
-        .skip(1)
-        .for_each(|row| {
-            for i in 1..row.len()-1 {
-                row[i] = rng.random_range(0.0..1.0);
-            }
-        });
+        self.dem
+            .chunks_exact_mut(self.order.meta().width())
+            .take(self.order.meta().height() - 1)
+            .skip(1)
+            .for_each(|row| {
+                for i in 1..row.len() - 1 {
+                    row[i] = rng.random_range(0.0..1.0);
+                }
+            });
         priority_flood_wei2018(&mut self.dem, &self.order.meta()).map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -135,14 +141,14 @@ impl Simulation {
     }
 
     #[wasm_bindgen]
-    pub fn step(&mut self) -> Result<f64, JsValue>{
+    pub fn step(&mut self) -> Result<f64, JsValue> {
         match &mut self.order {
             Orders::MFlow(o) => {
                 o.reorder(&self.dem, Dinf).map_err(|e| e.to_string())?;
                 emflow::accum(&self.params, &o, &mut self.acc);
                 add_uplift(o.meta(), &self.params, &mut self.dem);
                 emflow::erode(&o, &self.params, &self.acc, &mut self.dem);
-            },
+            }
             Orders::SFlow(o) => {
                 o.reorder(&self.dem, D8).map_err(|e| e.to_string())?;
                 esflow::accum(&o, &self.params, &mut self.acc);
@@ -150,10 +156,11 @@ impl Simulation {
                 esflow::erode(&o, &self.params, &self.acc, &mut self.dem);
             }
         }
-        let res = self.dem
+        let res = self
+            .dem
             .par_iter()
             .zip(self.prev_dem.par_iter())
-            .map(|(cur, prev)| OrderedFloat((cur-prev).abs()))
+            .map(|(cur, prev)| OrderedFloat((cur - prev).abs()))
             .max()
             .map(|v| v.into())
             .ok_or("Should not step with empty array!".into());
@@ -168,7 +175,7 @@ impl Simulation {
 
     #[wasm_bindgen]
     pub unsafe fn acc(&self) -> Float64Array {
-        unsafe {Float64Array::view(&self.acc)}
+        unsafe { Float64Array::view(&self.acc) }
     }
 
     #[wasm_bindgen]
@@ -200,7 +207,6 @@ impl Simulation {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use oxscape::NOT_A_DONOR;
@@ -219,28 +225,43 @@ mod tests {
     #[test]
     fn test_dinf() {
         let sim = Simulation::new(3, 3, 42).unwrap();
-        assert_eq!(sim.dem, [
-            0.0, 0.0, 0.0,
-            0.0, 0.5265574090027738, 0.0,
-            0.0, 0.0, 0.0
-        ]);
+        assert_eq!(
+            sim.dem,
+            [0.0, 0.0, 0.0, 0.0, 0.5265574090027738, 0.0, 0.0, 0.0, 0.0]
+        );
         match sim.order {
             Orders::MFlow(o) => {
-                assert_eq!(o.flows(), [
-                    [0.0; 8], [0.0; 8], [0.0; 8],
-                    [0.0; 8], [1.0, 0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0; 8],
-                    [0.0; 8], [0.0; 8], [0.0; 8]
-                ]);
+                assert_eq!(
+                    o.flows(),
+                    [
+                        [0.0; 8],
+                        [0.0; 8],
+                        [0.0; 8],
+                        [0.0; 8],
+                        [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        [0.0; 8],
+                        [0.0; 8],
+                        [0.0; 8],
+                        [0.0; 8]
+                    ]
+                );
                 const N: usize = NOT_A_DONOR;
-                assert_eq!(o.donors(), [
-                    [N;8], [N;8], [N;8],
-                    [N, N, N, N, 4, N, N, N], [N;8], [N;8],
-                    [N;8], [N;8], [N;8]
-                ])
-            },
-            _ => unreachable!()
+                assert_eq!(
+                    o.donors(),
+                    [
+                        [N; 8],
+                        [N; 8],
+                        [N; 8],
+                        [N, N, N, N, 4, N, N, N],
+                        [N; 8],
+                        [N; 8],
+                        [N; 8],
+                        [N; 8],
+                        [N; 8]
+                    ]
+                )
+            }
+            _ => unreachable!(),
         }
-
     }
 }
-
