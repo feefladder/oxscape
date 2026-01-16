@@ -1,6 +1,6 @@
 import { ref } from "vue";
 
-const isPlaying = ref(false);
+const isPlaying = ref(true);
 const isInitialized = ref(false);
 const mFlow = ref(true);
 
