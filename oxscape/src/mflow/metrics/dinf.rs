@@ -59,7 +59,7 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
                 let n = meta.xy_to_i(x, y);
                 let ps = &mut row[x];
 
-                let mut imax = 9;
+                let mut imax = 8;
                 let mut smax = 0.0;
                 let mut rmax = 0.0;
 
@@ -69,7 +69,19 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
                     // TODO: process nodata cells
 
                     //Choose elevations based on Table 1 of Tarboton (1997),
-                    // this is a triangle
+                    // this is a triangle like
+                    // 0   1   2  3
+                    // |\ \-| |-/ /|
+                    // 1-0 \| |/ 0-|
+                    //      0 0  0-| 4
+                    //        0   \|
+                    //        |\   5
+                    //      0 |-\
+                    //     /|  6
+                    //    /-|
+                    // |-/ 7
+                    // |/
+                    // 0
                     let e0: f64 = h[n];
                     let e1: f64 =
                         h[(n as isize + DX_E1[i] + DY_E1[i] * meta.width() as isize) as usize];
@@ -100,8 +112,8 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
                 }
 
                 // Some problem; probably a NaN
-                if imax == 9 {
-                    return;
+                if imax == 8 {
+                    continue;
                 }
 
                 if AF[imax] == 1.0 && rmax == 0.0 {
@@ -188,6 +200,7 @@ mod test {
     }
 
     #[test]
+    #[rustfmt::skip]
     /// Check all directions single-flow
     fn test_dinf_dirs() {
         const META: &GridMeta = &GridMeta::new(3, 3);
@@ -246,7 +259,7 @@ mod test {
     #[test]
     #[rustfmt::skip]
     fn test_dinf_3_random() {
-        let mut dem = [
+        let dem = [
             0.0, 0.0, 0.0,
             0.0, 0.5265574090027738, 0.0,
             0.0, 0.0, 0.0
@@ -269,10 +282,10 @@ mod test {
     #[test]
     #[rustfmt::skip]
     fn test_dinf_4() {
-        let meta = &GridMeta::new(4, 4);
-        let mut flows = vec![[0.0; 8]; meta.size];
-        let mut nrec = vec![2; meta.size];
-        fm_dinf(&meta, &consts::H_4, &mut flows, &mut nrec);
+        const META: &GridMeta = &GridMeta::new(4, 4);
+        let mut flows = vec![[0.0; 8]; META.size];
+        let mut nrec = vec![2; META.size];
+        fm_dinf(&META, &consts::H_4, &mut flows, &mut nrec);
         assert_eq!(flows, &[
             [0.0;8], [0.0;8], [0.0;8], [0.0;8],
             [0.0;8], [0.0, 0.590334470601733, 0.40966552939826695, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.590334470601733, 0.40966552939826695, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0;8],
@@ -420,7 +433,7 @@ mod test {
             vec![9,10],
         ]);
         let mut acc = vec![1.0;meta.size];
-        let order = Order::from_dem_trait(*meta, &consts::H_4, super::super::Dinf).unwrap();
+        let order = Order::from_dem_metric(*meta, &consts::H_4, super::super::Dinf).unwrap();
         order.for_lvls_top_down(&mut acc, |c| {
             *c.cell() += c.donors().iter().map(|(a,b)| a*b).sum::<f64>()
         });

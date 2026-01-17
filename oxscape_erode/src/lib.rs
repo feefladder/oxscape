@@ -1,9 +1,11 @@
 pub mod mflow;
 pub mod sflow;
+use rayon::prelude::*;
 
 #[cfg(feature = "fill")]
 pub mod fill_deps;
 
+use oxscape::GridMeta;
 #[cfg(feature = "wasm_js")]
 use wasm_bindgen::prelude::*;
 
@@ -31,4 +33,15 @@ impl Default for Params {
             cell_area: 1.0,
         }
     }
+}
+
+pub fn add_uplift(meta: &GridMeta, params: &Params, dem: &mut [f64]) {
+    dem.par_chunks_exact_mut(meta.width())
+        .take(meta.height() - 1)
+        .skip(1)
+        .for_each(|row| {
+            for h in row.iter_mut().take(meta.width() - 1).skip(1) {
+                *h += params.ueq * params.dt
+            }
+        });
 }

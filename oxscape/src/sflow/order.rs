@@ -3,7 +3,7 @@ use anyhow::{Result, anyhow};
 use num_traits::{Float, Zero};
 use rayon::prelude::*;
 
-pub const NO_FLOW: u8 = 9;
+pub const NO_FLOW: u8 = 8;
 
 pub fn generate_boring_terrain(dem: &mut [f64], start: f64, delta: f64) {
     dem.into_par_iter().enumerate().for_each(|(v, a)| {
@@ -228,6 +228,10 @@ impl Order {
 
     pub fn meta(&self) -> &GridMeta {
         &self.meta
+    }
+
+    pub fn receivers(&self) -> &[u8] {
+        &self.receivers
     }
 
     /// Create an uninitialized order

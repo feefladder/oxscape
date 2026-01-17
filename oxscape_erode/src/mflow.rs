@@ -2,7 +2,7 @@ use crate::Params;
 use oxscape::DR;
 use oxscape::mflow::{NO_FLOW_GEN, Order};
 
-pub fn accum(params: &Params, order: &Order, accum: &mut [f64]) {
+pub fn accum(order: &Order, params: &Params, accum: &mut [f64]) {
     // initialize to cell area
     accum.fill(params.cell_area);
 

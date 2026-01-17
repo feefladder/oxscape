@@ -14,74 +14,127 @@
 //! [widget examples]: https://github.com/ratatui/ratatui/blob/main/ratatui-widgets/examples
 //! [examples readme]: https://github.com/ratatui/ratatui/blob/main/examples/README.md
 
-use color_eyre::Result;
-use crossterm::event;
-use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Stylize};
-use ratatui::symbols::Marker;
-use ratatui::text::{Line as TextLine, Span};
-use ratatui::widgets::canvas::{Canvas, Line, Map, MapResolution, Rectangle, Points};
-// use ratatui_widgets::canvas::Points;
+use std::time::Duration;
+
+use color_eyre::{Result, owo_colors::OwoColorize};
+use crossterm::event::{self, Event, KeyCode};
+use ordered_float::OrderedFloat;
+use oxscape::{
+    GridMeta,
+    mflow::{NO_FLOW_GEN, Order, metrics::Dinf},
+};
+use oxscape_erode::{
+    Params, add_uplift,
+    mflow::{accum, erode},
+};
+use oxscape_tui::{DIRS, random_dem};
+use ratatui::style::Color::Rgb;
+use rayon::prelude::*;
 
 fn main() -> Result<()> {
-    color_eyre::install()?;
+    let mut params = Params::default();
+    let mut play: bool = true;
+    let mut seed = 42;
+    params.cell_area = 10000.0;
     ratatui::run(|terminal| {
+        let s = terminal.size()?;
+        let mut meta = GridMeta::new(usize::from(s.width / 2), usize::from(s.height));
+        let mut dem = vec![0.0; meta.size()];
+        let mut prev_dem = vec![0.0; meta.size()];
+        let mut acc = vec![0.0; meta.size()];
+        random_dem(&mut dem, &meta, seed).unwrap();
+        let mut order = Order::from_dem_metric(meta, &dem, &mut Dinf).unwrap();
         loop {
-            terminal.draw(render)?;
-            if event::read()?.is_key_press() {
-                break Ok(());
+            terminal.draw(|frame| {
+                let buf = frame.buffer_mut();
+                let area = buf.area;
+                let max = dem.par_iter().map(|v| OrderedFloat(*v)).max().unwrap().0;
+                order
+                    .levels()
+                    .windows(2)
+                    .map(|w| &order.stack()[w[0]..w[1]])
+                    .enumerate()
+                    .for_each(|(i, lvl)| {
+                        for c in lvl {
+                            let (x, y) = order.meta().i_to_xy(*c);
+                            let color = colorous::PLASMA.eval_rational(i, order.n_levels());
+                            buf[(u16::try_from(x * 2).unwrap(), u16::try_from(y).unwrap())]
+                                .set_fg(Rgb(color.r, color.g, color.b));
+                            buf[(u16::try_from(x * 2 + 1).unwrap(), u16::try_from(y).unwrap())]
+                                .set_fg(Rgb(color.r, color.g, color.b));
+                        }
+                    });
+                for y in 0..area.height {
+                    for x in 0..area.width / 2 {
+                        let n = meta.xy_to_i(x.into(), y.into());
+                        let mut n_dirs = 0;
+                        for (idx, f) in order.flows()[n].iter().enumerate() {
+                            if *f != NO_FLOW_GEN {
+                                if n_dirs >= 2 {
+                                    panic!();
+                                }
+                                buf[(x * 2 + n_dirs, y)].set_char(DIRS[idx]);
+                                n_dirs += 1;
+                            }
+                        }
+
+                        let bg = colorous::VIRIDIS.eval_continuous(dem[n] / max);
+                        buf[(x * 2, y)].set_bg(Rgb(bg.r, bg.g, bg.b));
+                        buf[(x * 2 + 1, y)].set_bg(Rgb(bg.r, bg.g, bg.b));
+                    }
+                }
+            })?;
+            if event::poll(Duration::from_millis(0))? {
+                match event::read()? {
+                    Event::Key(k) => {
+                        match k.code {
+                            KeyCode::Enter => {
+                                // dem[order.meta().xy_to_i(2, 2)] = 20.0;
+                                random_dem(&mut dem, &order.meta(), seed).unwrap();
+                                seed += 1;
+                                // continue;
+                            }
+                            KeyCode::Right => {
+                                order.reorder(&dem, &mut Dinf).unwrap();
+                                accum(&order, &params, &mut acc);
+                                add_uplift(&meta, &params, &mut dem);
+                                erode(&order, &params, &acc, &mut dem);
+                                prev_dem.copy_from_slice(&dem);
+                            }
+                            KeyCode::Char(' ') => play = !play,
+                            _ => break Ok(()),
+                        }
+                    }
+                    Event::Resize(width, height) => {
+                        meta = GridMeta::new(usize::from(width / 2), usize::from(height));
+                        dem = vec![0.0; meta.size()];
+                        prev_dem = vec![0.0; meta.size()];
+                        acc = vec![0.0; meta.size()];
+                        random_dem(&mut dem, &meta, seed).unwrap();
+                        order = Order::from_dem_metric(meta, &dem, &mut Dinf).unwrap();
+                    }
+                    _ => {}
+                }
+            }
+            if play {
+                order.reorder(&dem, &mut Dinf).unwrap();
+                accum(&order, &params, &mut acc);
+                add_uplift(&meta, &params, &mut dem);
+                erode(&order, &params, &acc, &mut dem);
+                if dem
+                    .par_iter()
+                    .zip(prev_dem.par_iter())
+                    .map(|(a, b)| OrderedFloat((a - b).abs()))
+                    .max()
+                    .unwrap()
+                    .0
+                    < 0.1
+                {
+                    random_dem(&mut dem, &order.meta(), seed).unwrap();
+                    seed += 1;
+                }
+                prev_dem.copy_from_slice(&dem);
             }
         }
     })
-}
-
-/// Render the UI with a canvas widget.
-fn render(frame: &mut Frame) {
-    let vertical = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).spacing(1);
-    let horizontal = Layout::horizontal([Constraint::Percentage(100)]).spacing(1);
-    let [top, main] = frame.area().layout(&vertical);
-    let [area] = main.layout(&horizontal);
-
-    let title = TextLine::from_iter([
-        Span::from("Canvas Widget").bold(),
-        Span::from(" (Press 'q' to quit)"),
-    ]);
-    frame.render_widget(title.centered(), top);
-
-    render_canvas(frame, area);
-}
-
-/// Renders the canvas widget with various shapes and a map.
-pub fn render_canvas(frame: &mut Frame, area: Rect) {
-    let canvas = Canvas::default()
-        .x_bounds([-180.0, 180.0])
-        .y_bounds([-90.0, 90.0])
-        .marker(Marker::Braille)
-        .paint(|ctx| {
-            ctx.draw(&Map {
-                resolution: MapResolution::High,
-                color: Color::White,
-            });
-            ctx.layer();
-            ctx.draw(&Line::new(0.0, 10.0, 10.0, 10.0, Color::Blue));
-            ctx.draw(&Rectangle {
-                x: 10.0,
-                y: 20.0,
-                width: 10.0,
-                height: 10.0,
-                color: Color::Green,
-            });
-            ctx.draw(&Points {
-                coords: &[
-                    (2.3522, 48.8566),    // Paris
-                    (-122.3321, 47.6062), // Seattle
-                    (-79.3837, 43.6511),  // Toronto
-                    (32.8597, 39.9334),   // Ankara
-                ],
-                color: Color::Red,
-            });
-        });
-
-    frame.render_widget(canvas, area);
 }

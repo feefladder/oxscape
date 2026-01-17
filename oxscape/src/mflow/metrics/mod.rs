@@ -9,7 +9,7 @@ pub struct Dinf;
 
 unsafe impl FlowMetric for Dinf {
     fn metric(
-        &self,
+        &mut self,
         meta: &GridMeta,
         dem: &[f64],
         flows: &mut [[f64; 8]],

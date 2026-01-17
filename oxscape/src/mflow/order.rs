@@ -108,7 +108,7 @@ pub struct Order {
 ///
 pub unsafe trait FlowMetric {
     fn metric(
-        &self,
+        &mut self,
         meta: &GridMeta,
         dem: &[f64],
         flows: &mut [[f64; 8]],
@@ -132,7 +132,7 @@ impl Order {
         }
     }
 
-    pub fn reorder<M: FlowMetric>(&mut self, dem: &[f64], metric: M) -> Result<()> {
+    pub fn reorder<M: FlowMetric>(&mut self, dem: &[f64], metric: &mut M) -> Result<()> {
         metric.metric(&self.meta, dem, &mut self.flows, &mut self.nrec)?;
         compute_donors_mflow(&self.meta, &self.flows, &mut self.donors);
         generate_order_mflow(
@@ -145,7 +145,7 @@ impl Order {
         Ok(())
     }
 
-    pub fn from_dem_trait<M: FlowMetric>(meta: GridMeta, dem: &[f64], metric: M) -> Result<Self> {
+    pub fn from_dem_metric<M: FlowMetric>(meta: GridMeta, dem: &[f64], metric: &mut M) -> Result<Self> {
         if meta.size != dem.len() {
             return Err(anyhow!("meta dem mismatch"));
         }
@@ -329,7 +329,7 @@ mod test {
     #[rustfmt::skip]
     fn test_order_3() {
         let meta = GridMeta::new(3, 3);
-        let order = Order::from_dem_trait(meta, &consts::H_3, Dinf).unwrap();
+        let order = Order::from_dem_metric(meta, &consts::H_3, Dinf).unwrap();
         assert_eq!(order.flows, vec![
             [0.0;8],[0.0;8],[0.0;8],
             [0.0;8],[0.0,0.590334470601733,0.40966552939826695,0.0,0.0, 0.0, 0.0, 0.0],[0.0;8],
