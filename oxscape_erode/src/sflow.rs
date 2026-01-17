@@ -1,19 +1,7 @@
-use crate::Params;
+use crate::{Params, add_uplift};
 use oxscape::sflow::Order;
 use oxscape::sflow::metrics::D8;
 use oxscape::{DR, GridMeta, Result};
-use rayon::prelude::*;
-
-pub fn add_uplift(meta: &GridMeta, params: &Params, dem: &mut [f64]) {
-    dem.par_chunks_exact_mut(meta.width())
-        .take(meta.height() - 1)
-        .skip(1)
-        .for_each(|row| {
-            for h in row.iter_mut().take(meta.width() - 1).skip(1) {
-                *h += params.ueq * params.dt
-            }
-        });
-}
 
 pub fn accum(order: &Order, params: &Params, accum: &mut [f64]) {
     accum.fill(params.cell_area);
@@ -48,7 +36,7 @@ pub fn run(nstep: usize, meta: &GridMeta, params: &Params, dem: &mut [f64]) -> R
     let mut order = Order::empty(*meta);
     let mut acc = vec![0.0; meta.size()];
     for _ in 0..nstep {
-        order.reorder(dem, D8)?;
+        order.reorder(dem, &mut D8)?;
         accum(&order, params, &mut acc);
         add_uplift(&order.meta(), params, dem);
         erode(&order, params, &acc, dem);
@@ -114,7 +102,7 @@ mod test {
     fn test_compute_acc() {
         let meta = GridMeta::new(8, 8);
         let mut acc = vec![0.0; meta.size()];
-        let order = Order::from_dem_metric(meta, &consts::H_LIFT, D8).unwrap();
+        let order = Order::from_dem_metric(meta, &consts::H_LIFT, &mut D8).unwrap();
         accum(&order, &Params::default(), &mut acc);
         assert_eq!(acc, consts::ACCUM);
     }
@@ -122,7 +110,7 @@ mod test {
     #[test]
     fn test_erode() {
         let mut h = consts::H_LIFT.to_vec();
-        let order = Order::from_dem_metric(GridMeta::new(8, 8), &consts::H_LIFT, D8).unwrap();
+        let order = Order::from_dem_metric(GridMeta::new(8, 8), &consts::H_LIFT, &mut D8).unwrap();
         erode(&order, &Params::default(), &consts::ACCUM, &mut h);
         assert_eq!(h, consts::H_ONE);
     }

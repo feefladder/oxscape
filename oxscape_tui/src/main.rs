@@ -1,22 +1,7 @@
-//! # [Ratatui] `Canvas` example
-//!
-//! The latest version of this example is available in the [widget examples] folder in the
-//! repository.
-//!
-//! Please note that the examples are designed to be run against the `main` branch of the Github
-//! repository. This means that you may not be able to compile with the latest release version on
-//! crates.io, or the one that you have installed locally.
-//!
-//! See the [examples readme] for more information on finding examples that match the version of the
-//! library you are using.
-//!
-//! [Ratatui]: https://github.com/ratatui/ratatui
-//! [widget examples]: https://github.com/ratatui/ratatui/blob/main/ratatui-widgets/examples
-//! [examples readme]: https://github.com/ratatui/ratatui/blob/main/examples/README.md
-
+//! 
 use std::time::Duration;
 
-use color_eyre::{Result, owo_colors::OwoColorize};
+use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode};
 use ordered_float::OrderedFloat;
 use oxscape::{
@@ -57,7 +42,7 @@ fn main() -> Result<()> {
                     .for_each(|(i, lvl)| {
                         for c in lvl {
                             let (x, y) = order.meta().i_to_xy(*c);
-                            let color = colorous::PLASMA.eval_rational(i, order.n_levels());
+                            let color = colorous::MAGMA.eval_rational(i, order.n_levels());
                             buf[(u16::try_from(x * 2).unwrap(), u16::try_from(y).unwrap())]
                                 .set_fg(Rgb(color.r, color.g, color.b));
                             buf[(u16::try_from(x * 2 + 1).unwrap(), u16::try_from(y).unwrap())]

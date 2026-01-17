@@ -6,7 +6,7 @@ use oxscape::sflow;
 use oxscape::sflow::metrics::D8;
 use oxscape_erode::Params;
 use oxscape_erode::fill_deps::priority_flood_wei2018;
-use oxscape_erode::sflow::add_uplift;
+use oxscape_erode::add_uplift;
 use oxscape_erode::{mflow as emflow, sflow as esflow};
 use wasm_bindgen::prelude::*;
 
@@ -76,8 +76,8 @@ impl Orders {
 
     fn reorder(&mut self, dem: &[f64]) -> Result<(), JsValue> {
         match self {
-            Orders::MFlow(o) => o.reorder(dem, Dinf).map_err(|e| e.to_string().into()),
-            Orders::SFlow(o) => o.reorder(dem, D8).map_err(|e| e.to_string().into()),
+            Orders::MFlow(o) => o.reorder(dem, &mut Dinf).map_err(|e| e.to_string().into()),
+            Orders::SFlow(o) => o.reorder(dem, &mut D8).map_err(|e| e.to_string().into()),
         }
     }
 }
@@ -144,13 +144,13 @@ impl Simulation {
     pub fn step(&mut self) -> Result<f64, JsValue> {
         match &mut self.order {
             Orders::MFlow(o) => {
-                o.reorder(&self.dem, Dinf).map_err(|e| e.to_string())?;
-                emflow::accum(&self.params, &o, &mut self.acc);
+                o.reorder(&self.dem, &mut Dinf).map_err(|e| e.to_string())?;
+                emflow::accum(&o, &self.params, &mut self.acc);
                 add_uplift(o.meta(), &self.params, &mut self.dem);
                 emflow::erode(&o, &self.params, &self.acc, &mut self.dem);
             }
             Orders::SFlow(o) => {
-                o.reorder(&self.dem, D8).map_err(|e| e.to_string())?;
+                o.reorder(&self.dem, &mut D8).map_err(|e| e.to_string())?;
                 esflow::accum(&o, &self.params, &mut self.acc);
                 add_uplift(o.meta(), &self.params, &mut self.dem);
                 esflow::erode(&o, &self.params, &self.acc, &mut self.dem);

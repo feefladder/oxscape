@@ -149,6 +149,7 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
 mod test {
     use super::*;
     use crate::NOT_A_DONOR;
+    use crate::mflow::metrics::Dinf;
     use crate::mflow::test::consts;
     use crate::mflow::{Order, compute_donors_mflow, generate_order_mflow};
 
@@ -196,6 +197,26 @@ mod test {
             0, 0, 0,
             0, 2, 0,
             0, 0, 0,
+        ])
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_depression() {
+        const META: &GridMeta = &GridMeta::new(4, 3);
+        let flows = &mut [[NO_FLOW_GEN; 8]; META.size];
+        let nrec = &mut [2; META.size];
+        // check that in a depression, only the pit cell is affected
+        // it also pulls flow towards it
+        fm_dinf(META, &[
+            1.0,1.0,1.0,1.0,
+            1.0,0.125,0.5,0.25,
+            1.0,1.0,1.0,1.0,
+        ], flows, nrec);
+        debug_assert_eq!(flows, &[
+            [0.0;8],[0.0;8],[0.0;8],[0.0;8],
+            [0.0;8],[0.0;8],[1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],[0.0;8],
+            [0.0;8],[0.0;8],[0.0;8],[0.0;8],
         ])
     }
 
@@ -433,7 +454,7 @@ mod test {
             vec![9,10],
         ]);
         let mut acc = vec![1.0;meta.size];
-        let order = Order::from_dem_metric(*meta, &consts::H_4, super::super::Dinf).unwrap();
+        let order = Order::from_dem_metric(*meta, &consts::H_4, &mut Dinf).unwrap();
         order.for_lvls_top_down(&mut acc, |c| {
             *c.cell() += c.donors().iter().map(|(a,b)| a*b).sum::<f64>()
         });

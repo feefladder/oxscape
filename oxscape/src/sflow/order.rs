@@ -98,7 +98,7 @@ pub fn generate_order(
     //of a for-loop, we include a zero at the beginning of the array.
     levels.push(0);
 
-    // outer edge can be added immediately and is a single level
+    // first add all cells that don't flow anywhere
     for (idx, c) in rec.iter().enumerate() {
         if *c == NO_FLOW {
             stack.push(idx);
@@ -250,7 +250,7 @@ impl Order {
         }
     }
 
-    pub fn from_dem_metric<M: FlowMetric>(meta: GridMeta, dem: &[f64], metric: M) -> Result<Self> {
+    pub fn from_dem_metric<M: FlowMetric>(meta: GridMeta, dem: &[f64], metric: &mut M) -> Result<Self> {
         if meta.size != dem.len() {
             return Err(anyhow!("meta dem mismatch"));
         }
@@ -260,7 +260,7 @@ impl Order {
     }
 
     /// re-calculate order with the given flow metric
-    pub fn reorder<M: FlowMetric>(&mut self, dem: &[f64], metric: M) -> Result<()> {
+    pub fn reorder<M: FlowMetric>(&mut self, dem: &[f64], metric: &mut M) -> Result<()> {
         metric.metric(&self.meta, dem, &mut self.receivers)?;
         compute_donors_par(&self.meta, &self.receivers, &mut self.donors);
         generate_order(
@@ -357,16 +357,16 @@ mod test {
         /*5*/15.5,16.0,16.5,17.0,17.5,18.0,
     ];
     //1 2 3
-    //0   4
+    //0 8 4
     //7 6 5
     pub const REC: [u8;36] = [
     //  0   1   2   3   4   5
-        9,  9,  9,  9,  9,  9,// 0
-        9,  2,  2,  2,  2,  9,// 1
-        9,  2,  2,  2,  2,  9,// 2
-        9,  2,  2,  2,  2,  9,// 3
-        9,  2,  2,  2,  2,  9,// 4
-        9,  9,  9,  9,  9,  9,// 5
+        8,  8,  8,  8,  8,  8,// 0
+        8,  2,  2,  2,  2,  8,// 1
+        8,  2,  2,  2,  2,  8,// 2
+        8,  2,  2,  2,  2,  8,// 3
+        8,  2,  2,  2,  2,  8,// 4
+        8,  8,  8,  8,  8,  8,// 5
     ];
     const ND: usize = NOT_A_DONOR;
     pub const DONOR: [[usize;8];36] = [

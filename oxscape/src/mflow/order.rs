@@ -329,7 +329,7 @@ mod test {
     #[rustfmt::skip]
     fn test_order_3() {
         let meta = GridMeta::new(3, 3);
-        let order = Order::from_dem_metric(meta, &consts::H_3, Dinf).unwrap();
+        let order = Order::from_dem_metric(meta, &consts::H_3, &mut Dinf).unwrap();
         assert_eq!(order.flows, vec![
             [0.0;8],[0.0;8],[0.0;8],
             [0.0;8],[0.0,0.590334470601733,0.40966552939826695,0.0,0.0, 0.0, 0.0, 0.0],[0.0;8],
