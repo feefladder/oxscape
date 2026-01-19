@@ -122,12 +122,14 @@ impl Order {
     }
 
     pub fn empty(meta: GridMeta) -> Self {
+        // SAFETY: we can create bogus flows, donors and nrec
+        // as long as stack and levels are empty
         Self {
-            meta,
+            meta: meta.clone(),
             flows: vec![[0.0; 8]; meta.size],
             donors: vec![[0; 8]; meta.size],
             nrec: vec![0; meta.size],
-            stack: vec![0; meta.size],
+            stack: Vec::with_capacity(meta.size),
             levels: Vec::with_capacity(2 * meta.width + 2 * meta.height),
         }
     }

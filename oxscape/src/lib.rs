@@ -14,7 +14,7 @@ pub const YSHIFT: [isize; 8] = [0, -1, -1, -1, 0, 1, 1, 1];
 
 pub const DR: [f64; 8] = [1.0, SQRT_2, 1.0, SQRT_2, 1.0, SQRT_2, 1.0, SQRT_2];
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct GridMeta {
     width: usize,
     height: usize,
@@ -65,11 +65,11 @@ impl GridMeta {
         }
     }
 
-    pub fn width(&self) -> usize {
+    pub const fn width(&self) -> usize {
         self.width
     }
 
-    pub fn height(&self) -> usize {
+    pub const fn height(&self) -> usize {
         self.height
     }
 
@@ -141,18 +141,18 @@ impl GridMeta {
     }
 
     #[inline]
-    pub fn is_edge_cell(&self, x: usize, y: usize) -> bool {
+    pub const fn is_edge_cell(&self, x: usize, y: usize) -> bool {
         x == 0 || y == 0 || x == self.width - 1 || y == self.height - 1
     }
 
     #[inline]
-    pub fn is_edge(&self, i: usize) -> bool {
+    pub const fn is_edge(&self, i: usize) -> bool {
         let (x, y) = self.i_to_xy(i);
         self.is_edge_cell(x, y)
     }
 
     #[inline]
-    pub fn in_grid(&self, x: isize, y: isize) -> bool {
+    pub const fn in_grid(&self, x: isize, y: isize) -> bool {
         x >= 0 && x < self.width as isize && y >= 0 && y < self.height as isize
     }
 
@@ -167,12 +167,12 @@ impl GridMeta {
     }
 
     #[inline]
-    pub fn i_to_xy(&self, i: usize) -> (usize, usize) {
+    pub const fn i_to_xy(&self, i: usize) -> (usize, usize) {
         (i % self.width, i / self.width)
     }
 
     #[inline]
-    pub fn xy_to_i(&self, x: usize, y: usize) -> usize {
+    pub const fn xy_to_i(&self, x: usize, y: usize) -> usize {
         x + y * self.width
     }
 }

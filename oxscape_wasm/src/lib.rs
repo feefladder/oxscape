@@ -135,8 +135,8 @@ impl Simulation {
     #[wasm_bindgen]
     pub fn switch(&mut self) {
         self.order = match &self.order {
-            Orders::MFlow(o) => Orders::SFlow(sflow::Order::empty(*o.meta())),
-            Orders::SFlow(o) => Orders::MFlow(mflow::Order::empty(*o.meta())),
+            Orders::MFlow(o) => Orders::SFlow(sflow::Order::empty(o.meta().clone())),
+            Orders::SFlow(o) => Orders::MFlow(mflow::Order::empty(o.meta().clone())),
         }
     }
 

@@ -415,7 +415,7 @@ mod test {
     #[test]
     #[rustfmt::skip]
     fn test_dinf_donors_4() {
-        let meta = &GridMeta::new(4, 4);
+        let meta = GridMeta::new(4, 4);
         let h = consts::H_4;
         let mut flows = vec![[0.0;8];meta.size];
         let mut nrec = vec![0;meta.size];
@@ -454,7 +454,7 @@ mod test {
             vec![9,10],
         ]);
         let mut acc = vec![1.0;meta.size];
-        let order = Order::from_dem_metric(*meta, &consts::H_4, &mut Dinf).unwrap();
+        let order = Order::from_dem_metric(meta, &consts::H_4, &mut Dinf).unwrap();
         order.for_lvls_top_down(&mut acc, |c| {
             *c.cell() += c.donors().iter().map(|(a,b)| a*b).sum::<f64>()
         });

@@ -24,6 +24,7 @@ pub const DIRS: [char; 9] = ['🡸', '🡼', '🡹', '🡽', '🡺', '🡾', '�
 
 pub fn random_dem(dem: &mut [f64], meta: &GridMeta, seed: u64) -> Result<()> {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+    dem.fill(0.0);
     dem.chunks_exact_mut(meta.width())
         .take(meta.height() - 1)
         .skip(1)

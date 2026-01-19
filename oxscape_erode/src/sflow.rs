@@ -33,8 +33,8 @@ pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {
 }
 
 pub fn run(nstep: usize, meta: &GridMeta, params: &Params, dem: &mut [f64]) -> Result<()> {
-    let mut order = Order::empty(*meta);
-    let mut acc = vec![0.0; meta.size()];
+    let mut order = Order::empty(meta.clone());
+    let mut acc = vec![0.0; order.meta().size()];
     for _ in 0..nstep {
         order.reorder(dem, &mut D8)?;
         accum(&order, params, &mut acc);
