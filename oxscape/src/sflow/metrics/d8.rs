@@ -14,6 +14,7 @@ pub fn compute_receivers<T: Float + From<f64> + Sync>(meta: &GridMeta, h: &[T], 
         .take(meta.height - 1)
         .skip(1)
         .for_each(|(y, row)| {
+            #[allow(clippy::needless_range_loop)]
             for x in 1..meta.width - 1 {
                 let c: usize = y * meta.width + x;
 

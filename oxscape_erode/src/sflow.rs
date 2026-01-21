@@ -38,7 +38,7 @@ pub fn run(nstep: usize, meta: &GridMeta, params: &Params, dem: &mut [f64]) -> R
     for _ in 0..nstep {
         order.reorder(dem, &mut D8)?;
         accum(&order, params, &mut acc);
-        add_uplift(&order.meta(), params, dem);
+        add_uplift(order.meta(), params, dem);
         erode(&order, params, &acc, dem);
     }
     Ok(())

@@ -118,7 +118,7 @@ impl Simulation {
                     row[i] = rng.random_range(0.0..1.0);
                 }
             });
-        priority_flood_wei2018(&mut self.dem, &self.order.meta()).map_err(|e| e.to_string())?;
+        priority_flood_wei2018(&mut self.dem, self.order.meta()).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -145,15 +145,15 @@ impl Simulation {
         match &mut self.order {
             Orders::MFlow(o) => {
                 o.reorder(&self.dem, &mut Dinf).map_err(|e| e.to_string())?;
-                emflow::accum(&o, &self.params, &mut self.acc);
+                emflow::accum(o, &self.params, &mut self.acc);
                 add_uplift(o.meta(), &self.params, &mut self.dem);
-                emflow::erode(&o, &self.params, &self.acc, &mut self.dem);
+                emflow::erode(o, &self.params, &self.acc, &mut self.dem);
             }
             Orders::SFlow(o) => {
                 o.reorder(&self.dem, &mut D8).map_err(|e| e.to_string())?;
-                esflow::accum(&o, &self.params, &mut self.acc);
+                esflow::accum(o, &self.params, &mut self.acc);
                 add_uplift(o.meta(), &self.params, &mut self.dem);
-                esflow::erode(&o, &self.params, &self.acc, &mut self.dem);
+                esflow::erode(o, &self.params, &self.acc, &mut self.dem);
             }
         }
         let res = self
@@ -168,28 +168,64 @@ impl Simulation {
         res
     }
 
+    /// Get direct access to the dem
+    ///
+    /// # SAFETY
+    ///
+    /// This gives a direct, ?immutable? view to Javascript.
+    /// Be sure to get rid of it before calling step
     #[wasm_bindgen]
     pub unsafe fn dem(&self) -> Float64Array {
         unsafe { Float64Array::view(&self.dem) }
     }
 
+    /// Get direct access to the accumulation
+    ///
+    /// # SAFETY
+    ///
+    /// This gives a direct, ?immutable? view to Javascript.
+    /// Be sure to get rid of it before calling step
     #[wasm_bindgen]
     pub unsafe fn acc(&self) -> Float64Array {
         unsafe { Float64Array::view(&self.acc) }
     }
 
+    /// Get direct access to the levels array as u32
+    ///
+    ///
+    /// # SAFETY
+    ///
+    /// This gives a direct, ?immutable? view to Javascript.
+    /// Be sure to get rid of it before calling step
+    ///
+    /// # Panics
+    ///
+    /// on non-32 bit pointer targets
     #[wasm_bindgen]
     pub unsafe fn levels(&self) -> Uint32Array {
         let lvls = self.order.levels();
+        assert_eq!(std::mem::size_of::<usize>(), std::mem::size_of::<u32>());
         unsafe {
             let u32_slice = std::slice::from_raw_parts(lvls.as_ptr() as *const u32, lvls.len());
             Uint32Array::view(u32_slice)
         }
     }
 
+    /// Get direct access to the stack array as u32
+    ///
+    ///
+    /// # SAFETY
+    ///
+    /// This gives a direct, ?immutable? view to Javascript.
+    /// Be sure to get rid of it before calling step
+    ///
+    /// # Panics
+    ///
+    /// on non-32 bit pointer targets
     #[wasm_bindgen]
     pub unsafe fn stack(&self) -> Uint32Array {
         let stack = self.order.stack();
+        assert_eq!(std::mem::size_of::<usize>(), std::mem::size_of::<u32>());
         unsafe {
             let u32_slice = std::slice::from_raw_parts(stack.as_ptr() as *const u32, stack.len());
             Uint32Array::view(u32_slice)

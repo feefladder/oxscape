@@ -18,7 +18,7 @@ impl Eq for CellZ {}
 
 impl PartialOrd for CellZ {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(other.z.cmp(&self.z))
+        Some(self.cmp(other))
     }
 }
 impl Ord for CellZ {
@@ -70,7 +70,7 @@ fn process_pit(
                 });
             } else {
                 flag[ni] = true;
-                dem[ni] = node.z.next_up().into();
+                dem[ni] = node.z.next_up();
                 depression_q.push_back(CellZ {
                     i: ni,
                     z: node.z.next_up().into(),
@@ -136,12 +136,12 @@ pub fn priority_flood_wei2018(dem: &mut [f64], meta: &GridMeta) -> Result<()> {
     init_priority_queue(dem, &mut flag, meta, &mut pq);
 
     while let Some(node) = pq.pop() {
-        for d in 0..8 {
+        for dir in 0..8 {
             // TODO: this is x-wrapping
-            if !meta.inside(isize::try_from(node.i).unwrap() + meta.nshift()[d]) {
+            let (x, y) = meta.i_to_xy(node.i);
+            let Some(ni) = meta.try_shift(x, y, dir) else {
                 continue;
-            }
-            let ni = meta.shift(node.i, d as u8);
+            };
             if flag[ni] {
                 continue;
             }

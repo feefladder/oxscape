@@ -6,9 +6,9 @@ use oxscape::{
 };
 use oxscape_erode::{
     Params, add_uplift,
-    fill_deps::priority_flood_wei2018,
     mflow::{accum, erode},
 };
+use oxscape_tile::fill::fill_zhou2016;
 use rand::prelude::*;
 
 /// Arrows that point in the direction
@@ -42,7 +42,8 @@ pub fn random_dem(dem: &mut [f64], meta: &GridMeta, seed: u64) -> Result<()> {
                 row[i] = rng.random_range(0.0..1.0);
             }
         });
-    priority_flood_wei2018(dem, meta).map_err(|e| Report::msg(e.to_string()))
+    fill_zhou2016(meta, dem);
+    Ok(())
 }
 
 pub trait Simulation: Sized {
@@ -119,8 +120,7 @@ impl Simulation for DefaultSim {
         add_uplift(self.order.meta(), &self.params, &mut self.dem);
         accum(&self.order, &self.params, &mut self.accum);
         erode(&self.order, &self.params, &self.accum, &mut self.dem);
-        priority_flood_wei2018(&mut self.dem, self.order.meta())
-            .map_err(|e| Report::msg(e.to_string()))?;
+        fill_zhou2016(self.order.meta(), &mut self.dem);
         self.order
             .reorder(&self.dem, &mut Dinf)
             .map_err(|e| Report::msg(e.to_string()))

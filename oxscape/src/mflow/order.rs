@@ -101,7 +101,9 @@ pub struct Order {
 /// A flowmetric should write to flows and nrec, where nrec is the number of
 /// receivers of a current cell
 ///
-/// SAFETY: Cycles are omitted and out-of-bounds will panic. However, if `nrec`
+/// # SAFETY
+///
+/// Cycles are omitted and out-of-bounds will panic. However, if `nrec`
 /// is not sound _and_ the flow graph contains a cycle, it is uncertain if the
 /// flowgraph could be unsound. It is your responsibility that nrec contains the
 /// number of receivers and flows only point downstream (no cycles).

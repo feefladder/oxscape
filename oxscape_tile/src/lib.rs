@@ -1,10 +1,11 @@
-use ordered_float::{Float, FloatCore, OrderedFloat};
+use ordered_float::{FloatCore, OrderedFloat};
 use oxscape::{GridMeta, XSHIFT, YSHIFT};
 use std::{
     cmp::Ordering,
     collections::{BinaryHeap, VecDeque},
 };
 
+pub mod fill;
 pub type TLabel = u32;
 
 /// A struct that implements Ord in reverse order
@@ -31,18 +32,16 @@ impl<T: FloatCore> Eq for Cell<T> {}
 impl<T: FloatCore> PartialOrd for Cell<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         // reverse ordering on z-value
-        Some(
-            match OrderedFloat::from(other.z).cmp(&OrderedFloat::from(self.z)) {
-                // but roi takes precedence
-                Ordering::Equal => self.roi.cmp(&other.roi),
-                other => other,
-            },
-        )
+        Some(self.cmp(other))
     }
 }
 impl<T: FloatCore> Ord for Cell<T> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap()
+        match OrderedFloat::from(other.z).cmp(&OrderedFloat::from(self.z)) {
+            // but roi takes precedence
+            Ordering::Equal => self.roi.cmp(&other.roi),
+            other => other,
+        }
     }
 }
 
@@ -56,16 +55,15 @@ fn get_new_label<T: FloatCore>(
     current_label: &mut TLabel,
 ) -> TLabel {
     let n = meta.xy_to_i(x, y);
+    // if we already have a label, that's the one
     if labels[n] != 0 {
         labels[n]
     } else {
-        for i in 0..8 {
-            let nx = isize::try_from(x).unwrap() + XSHIFT[i];
-            let ny = isize::try_from(y).unwrap() + YSHIFT[i];
-            if !meta.in_grid(nx, ny) {
+        // otherwise, we can take a label from a neighbouring lower cell
+        for dir in 0..8 {
+            let Some(nn) = meta.try_shift(x, y, dir) else {
                 continue;
             };
-            let nn = meta.xy_to_i(nx as usize, ny as usize);
             if labels[nn] != 0 && dem[nn] <= dem[n] {
                 return labels[nn];
             }
@@ -116,14 +114,10 @@ impl<T: FloatCore> TileFillState<'_, T> {
             //     return true
             // }
             // check all neighbours
-            for i in 0..8 {
-                let nx = isize::try_from(r.x).unwrap() + XSHIFT[i];
-                let ny = isize::try_from(r.y).unwrap() + YSHIFT[i];
-                if !self.meta.in_grid(nx, ny) {
+            for dir in 0..8 {
+                let Some(n) = self.meta.try_shift(r.x, r.y, dir) else {
                     continue;
-                }
-                // neighbour's flat index
-                let n = self.meta.xy_to_i(nx as usize, ny as usize);
+                };
                 let n_label = self.labels[n];
                 if n_label != 0 {
                     // when two catchments collide...
@@ -131,9 +125,10 @@ impl<T: FloatCore> TileFillState<'_, T> {
                     // add
                     if self.dem[n] >= r.z {
                         self.labels[n] = self.labels[self.meta.xy_to_i(r.x, r.y)];
+                        let (nx, ny) = self.meta.i_to_xy(n);
                         self.roi.push_front(Cell {
-                            x: nx as usize,
-                            y: ny as usize,
+                            x: nx,
+                            y: ny,
                             z: self.dem[n],
                             roi: true,
                         });
@@ -301,6 +296,7 @@ mod test {
 
     #[test]
     fn tiled_dem() {
+        // the sample tiled dem from Barnes
         let tiled = [
             [
                 9,9,7,6,7,6,4,

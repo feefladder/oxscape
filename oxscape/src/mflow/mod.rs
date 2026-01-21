@@ -43,6 +43,7 @@ pub fn generate_order_mflow(
     levels.push(0);
 
     // Add cells that don't give flow as the first level
+    #[allow(clippy::needless_range_loop)]
     for c in 0..meta.size {
         if nrec[c] == 0 {
             stack.push(c);

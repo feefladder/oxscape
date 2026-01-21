@@ -117,6 +117,18 @@ impl GridMeta {
             .expect("shifted value should fit in grid")
     }
 
+    /// Try to offset in the given direction, returning `None` if it would be off the grid
+    #[inline]
+    pub fn try_shift(&self, x: usize, y: usize, dir: u8) -> Option<usize> {
+        let nx = isize::try_from(x).unwrap() + XSHIFT[usize::from(dir)];
+        let ny = isize::try_from(y).unwrap() + YSHIFT[usize::from(dir)];
+        if self.in_grid(nx, ny) {
+            Some(self.xy_to_i(nx as usize, ny as usize))
+        } else {
+            None
+        }
+    }
+
     /// Reverse the direction of nshift:
     /// ```
     /// # use oxscape::GridMeta;

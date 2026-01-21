@@ -10,3 +10,7 @@ One small problem is that given an area of interest, say a farm or city, you don
 "Given an initial area, can you find all upslope cells in a non-depression-filled dem?"
 
 I realized it may be possible with like a priority-flood if the area of interest _and_ the borders of tiles are added to the priority queue (BinaryHeap). The main problem of only adding the area of interest is that the priority flood algorithm assumes all water flows to the initial cells.
+
+So that can actually be done by taking the Zhou depression filling algorithm (that has a slope plain queue), adding a boolean `is_roi` flag and initializing the slope queue with that. --I think...
+
+

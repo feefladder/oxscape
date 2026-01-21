@@ -190,15 +190,16 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
     #[inline]
     pub fn donors(&self) -> [T; 8] {
         let mut res = [T::zero(); 8];
-        for n in 0..8 {
-            let don_idx = self.donors[self.idx][n];
+        #[allow(clippy::needless_range_loop)]
+        for dir in 0..8 {
+            let don_idx = self.donors[self.idx][dir];
             if don_idx == NOT_A_DONOR {
                 continue;
             }
             // SAFETY: topological sorting is based on this flow metric.
             // Therefore, any direction that is NOT NO_FLOW_GEN is in a
             // different level and can be safely accessed.
-            unsafe { res[n] = self.arr.0.add(self.donors[self.idx][n]).read() }
+            unsafe { res[dir] = self.arr.0.add(self.donors[self.idx][dir]).read() }
         }
         res
     }
