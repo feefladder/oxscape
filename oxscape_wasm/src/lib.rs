@@ -5,8 +5,8 @@ use oxscape::mflow::metrics::Dinf;
 use oxscape::sflow;
 use oxscape::sflow::metrics::D8;
 use oxscape_erode::Params;
-use oxscape_erode::fill_deps::priority_flood_wei2018;
 use oxscape_erode::add_uplift;
+use oxscape_erode::fill_deps::priority_flood_wei2018;
 use oxscape_erode::{mflow as emflow, sflow as esflow};
 use wasm_bindgen::prelude::*;
 

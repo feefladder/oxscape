@@ -250,7 +250,11 @@ impl Order {
         }
     }
 
-    pub fn from_dem_metric<M: FlowMetric>(meta: GridMeta, dem: &[f64], metric: &mut M) -> Result<Self> {
+    pub fn from_dem_metric<M: FlowMetric>(
+        meta: GridMeta,
+        dem: &[f64],
+        metric: &mut M,
+    ) -> Result<Self> {
         if meta.size != dem.len() {
             return Err(anyhow!("meta dem mismatch"));
         }

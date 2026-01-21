@@ -1,19 +1,3 @@
-//! Terminal User Interface (TUI) for debugging purposes
-//!
-//! runs the model in full-size terminal.
-//!
-//! Arrows (max 2) indicate flow directions and their colors the levels. All
-//! arrows of the same color are run in parallel.
-//!  
-use std::time::Duration;
-
-use color_eyre::Result;
-use crossterm::event::{self, Event, KeyCode};
-use ordered_float::OrderedFloat;
-use oxscape::mflow::NO_FLOW_GEN;
-use oxscape_tui::{DIRS, DefaultSim, Simulation};
-use ratatui::style::Color::Rgb;
-use rayon::prelude::*;
 
 fn main() -> Result<()> {
     let mut play: bool = false;
@@ -82,6 +66,20 @@ fn main() -> Result<()> {
                     for x in 0..sim.order().meta().width() {
                         let n = sim.order().meta().xy_to_i(x, y);
                         let mut n_dirs = 0;
+                        for (idx, f) in sim.order().flows()[n].iter().enumerate() {
+                            if *f != NO_FLOW_GEN {
+                                if n_dirs >= 2 {
+                                    // prevent overflow in multiflow
+                                    continue;
+                                }
+                                buf[(
+                                    u16::try_from(x * 2 + n_dirs).unwrap(),
+                                    u16::try_from(y).unwrap(),
+                                )]
+                                    .set_char(DIRS[idx]);
+                                n_dirs += 1;
+                            }
+                        }
                         let bg = sim.gradient().eval_continuous(sim.dem()[n] / max);
                         buf[(u16::try_from(x * 2).unwrap(), u16::try_from(y).unwrap())]
                             .set_bg(Rgb(bg.r, bg.g, bg.b));

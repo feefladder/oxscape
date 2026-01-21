@@ -156,15 +156,15 @@ impl GridMeta {
         x >= 0 && x < self.width as isize && y >= 0 && y < self.height as isize
     }
 
-    #[inline]
-    pub fn inside(&self, i: isize) -> bool {
-        if i < 0 {
-            false
-        } else {
-            let (x, y) = self.i_to_xy(i.try_into().unwrap());
-            self.in_grid(x.try_into().unwrap(), y.try_into().unwrap())
-        }
-    }
+    // #[inline]
+    // pub fn inside(&self, i: isize) -> bool {
+    //     if i < 0 {
+    //         false
+    //     } else {
+    //         let (x, y) = self.i_to_xy(i.try_into().unwrap());
+    //         self.in_grid(x.try_into().unwrap(), y.try_into().unwrap())
+    //     }
+    // }
 
     #[inline]
     pub const fn i_to_xy(&self, i: usize) -> (usize, usize) {

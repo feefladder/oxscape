@@ -137,6 +137,7 @@ pub fn priority_flood_wei2018(dem: &mut [f64], meta: &GridMeta) -> Result<()> {
 
     while let Some(node) = pq.pop() {
         for d in 0..8 {
+            // TODO: this is x-wrapping
             if !meta.inside(isize::try_from(node.i).unwrap() + meta.nshift()[d]) {
                 continue;
             }
