@@ -1,4 +1,4 @@
-use std::collections::{BinaryHeap, VecDeque};
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 
 use ordered_float::FloatCore;
 use oxscape::GridMeta;
@@ -12,6 +12,8 @@ use crate::{Cell, TLabel};
 /// As such, most operations on a u32 should work,
 /// unless there are more than 2147483647 different labels
 pub const ROI_FLAG: TLabel = 1 << (std::mem::size_of::<TLabel>() * 8 - 1);
+
+pub type Graph<T> = Vec<HashMap<TLabel, T>>;
 
 pub trait NextUp {
     fn next_up(&self) -> Self;
@@ -29,11 +31,7 @@ impl NextUp for f64 {
     }
 }
 
-// impl NextUp for f16 {
-//     fn next_up(&self) -> Self {
-//         f16::next_up(*self)
-//     }
-// }
+
 
 pub struct ZhouFillState<'a, T: FloatCore> {
     pub priority_queue: BinaryHeap<Cell<T>>,
@@ -221,72 +219,6 @@ pub fn fill_zhou2016<T: FloatCore + NextUp>(meta: &GridMeta, dem: &mut [T]) {
         meta,
     };
     while state.step() {}
-    // while let Some(c) = priority_queue.pop() {
-    //     println!("Processing pq ({:?},{:?})", c.x, c.y);
-    //     let n = meta.xy_to_i(c.x, c.y);
-    //     labels[n] = 10;
-    //     for dir in 0..8 {
-    //         let Some(ni) = meta.try_shift(c.x, c.y, dir) else {continue;};
-    //         if labels[ni] != 0 {continue;}
-    //         labels[ni] = labels[n];
-    //         if dem[ni]<=c.z { // depression cell
-    //             println!("Depression at {ni}");
-    //             depression_queue.push_back(ni);
-    //             // Fill depression
-    //             while let Some(di) = depression_queue.pop_front() {
-    //                 let (dep_x,dep_y) = meta.i_to_xy(di);
-    //                 for dep_dir in 0..8 {
-    //                     let Some(ndi) = meta.try_shift(dep_x, dep_y, dep_dir) else {continue;};
-    //                     if labels[ndi] != 0 {continue;}
-
-    //                     if dem[ndi] > dem[di] {
-    //                         trace_queue.push_back(ndi); // slope cell
-    //                     } else { // depression cell
-    //                         dem[ndi] = dem[ni]; // fill
-    //                         depression_queue.push_back(ndi); // add
-    //                     }
-    //                 }
-    //             }
-    //         } else { // slope cell
-    //             trace_queue.push_back(ni);
-    //         }
-    //         // The depression has also added slope cells, process those
-    //         while let Some(si) = trace_queue.pop_front() {
-    //             let (slope_x,slope_y) = meta.i_to_xy(si);
-    //             println!("processing slope ({slope_x},{slope_y})");
-    //             // flag so we only add the cell to the priority queue once
-    //             //
-    //             // at this point, we're not in the priority queue, so from the neighbours we'll have
-    //             // to figure out if we're an edge cell
-    //             let mut b_in_pq = false;
-    //             for slope_dir in 0..8 {
-    //                 let Some(nsi) = meta.try_shift(slope_x, slope_y, slope_dir) else {continue;};
-    //                 // check if already processed
-    //                 if labels[nsi] != 0 {continue;}
-    //                 // the neighbour is a slope cell
-    //                 if dem[nsi]<dem[si] {
-    //                     trace_queue.push_back(nsi);
-    //                     labels[nsi] = labels[si]
-    //                 }
-    //                 if !b_in_pq {
-    //                     let mut is_boundary = true;
-    //                     let (nsx,nsy) = meta.i_to_xy(nsi);
-    //                     for slope_n_dir in 0..8 {
-    //                         let Some(nnsi) = meta.try_shift(nsx, nsy, slope_n_dir) else {continue;};
-    //                         if labels[nnsi]!=0 && dem[nnsi]<dem[nsi]{
-    //                             is_boundary = false;
-    //                             break;
-    //                         }
-    //                     }
-    //                     if is_boundary {
-    //                         priority_queue.push(Cell { x: nsx, y: nsy, z: dem[nsi], roi: false });
-    //                         b_in_pq = true;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
 }
 
 #[cfg(test)]

@@ -31,12 +31,12 @@ impl<T: FloatCore> Eq for Cell<T> {}
 /// However, the roi should grow first on equality.
 impl<T: FloatCore> PartialOrd for Cell<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        // reverse ordering on z-value
         Some(self.cmp(other))
     }
 }
 impl<T: FloatCore> Ord for Cell<T> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // reverse ordering on z-value
         match OrderedFloat::from(other.z).cmp(&OrderedFloat::from(self.z)) {
             // but roi takes precedence
             Ordering::Equal => self.roi.cmp(&other.roi),
