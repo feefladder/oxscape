@@ -1,100 +1,143 @@
+use color_eyre::{Result, eyre::Ok};
+use colorous::Gradient;
+use ordered_float::OrderedFloat;
+use oxscape::GridMeta;
+use oxscape_tile::fill::ZhouFillState;
+use ratatui::prelude::*;
+use ratatui::widgets::WidgetRef;
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
-fn main() -> Result<()> {
-    let mut play: bool = false;
-    ratatui::run(|terminal| {
-        let s = terminal.size()?;
-        let mut start_frame = terminal.get_frame().count();
-        let mut sim = DefaultSim::init(
-            usize::from(s.width / 2),
-            usize::from(s.height),
-            colorous::CUBEHELIX,
-        )?;
-        loop {
-            if event::poll(Duration::from_millis(0))? {
-                match event::read()? {
-                    Event::Resize(width, height) => {
-                        sim.resize(usize::from(width / 2), usize::from(height))?;
-                    }
-                    Event::Key(k) => match k.code {
-                        KeyCode::Enter => {
-                            sim.restart()?;
-                        }
-                        KeyCode::Right => {
-                            sim.step()?;
-                        }
-                        KeyCode::Char(' ') => play = !play,
-                        _ => break Ok(()),
-                    },
-                    _ => {}
-                }
+use crate::Simulation;
+
+pub struct TiledSim<'a> {
+    pub meta: GridMeta,
+    pub state: Vec<ZhouFillState<'a, f64>>,
+    pub gradients: Vec<Gradient>,
+}
+
+impl Simulation for TiledSim<'_> {
+    fn init(width: usize, height: usize, gradient: Gradient) -> Result<Self> {
+        todo!()
+    }
+
+    fn resize(&mut self, width: usize, height: usize) -> Result<()> {
+        todo!()
+    }
+
+    fn restart(&mut self) -> Result<()> {
+        todo!()
+    }
+
+    fn step(&mut self) -> Result<()> {
+        self.state.par_iter_mut().map(|s| s.step()).max();
+        Ok(())
+    }
+}
+
+impl WidgetRef for TiledSim<'_> {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+        let tile_size = u16::try_from(self.state[0].meta.width()).unwrap();
+        let col_constraint = (0..self.meta.width()).map(|_| Constraint::Length(tile_size * 2));
+        let row_constraint = (0..self.meta.height()).map(|_| Constraint::Length(tile_size));
+        let horizontal = Layout::horizontal(col_constraint).spacing(0);
+        let vertical = Layout::vertical(row_constraint).spacing(0);
+
+        let rows = vertical.split(area);
+        let rects = rows.iter().flat_map(|&row| horizontal.split(row).to_vec());
+
+        for (i, (rect, state)) in rects.zip(&self.state).enumerate() {
+            let (tile_ix, tile_iy) = self.meta.i_to_xy(i);
+            Tile {
+                fillstate: state,
+                gradient: self.gradients[(tile_ix + tile_iy) % self.gradients.len()],
             }
-            terminal.draw(|frame| {
-                assert_eq!(
-                    usize::from(frame.area().width / 2),
-                    sim.order().meta().width()
-                );
-                assert_eq!(
-                    usize::from(frame.area().height),
-                    sim.order().meta().height()
-                );
-                let buf = frame.buffer_mut();
-                let max = sim
-                    .dem()
-                    .par_iter()
-                    .map(|v| OrderedFloat(*v))
-                    .max()
-                    .unwrap()
-                    .0;
-                sim.order()
-                    .levels()
-                    .windows(2)
-                    .map(|w| &sim.order().stack()[w[0]..w[1]])
-                    .enumerate()
-                    .for_each(|(i, lvl)| {
-                        for c in lvl {
-                            let (x, y) = sim.order().meta().i_to_xy(*c);
-                            let color = sim
-                                .gradient()
-                                .eval_rational(sim.order().n_levels() - i, sim.order().n_levels());
-                            buf[(u16::try_from(x * 2).unwrap(), u16::try_from(y).unwrap())]
-                                .set_fg(Rgb(color.r, color.g, color.b));
-                            buf[(u16::try_from(x * 2 + 1).unwrap(), u16::try_from(y).unwrap())]
-                                .set_fg(Rgb(color.r, color.g, color.b));
-                        }
-                    });
-                for y in 0..sim.order().meta().height() {
-                    for x in 0..sim.order().meta().width() {
-                        let n = sim.order().meta().xy_to_i(x, y);
-                        let mut n_dirs = 0;
-                        for (idx, f) in sim.order().flows()[n].iter().enumerate() {
-                            if *f != NO_FLOW_GEN {
-                                if n_dirs >= 2 {
-                                    // prevent overflow in multiflow
-                                    continue;
-                                }
-                                buf[(
-                                    u16::try_from(x * 2 + n_dirs).unwrap(),
-                                    u16::try_from(y).unwrap(),
-                                )]
-                                    .set_char(DIRS[idx]);
-                                n_dirs += 1;
-                            }
-                        }
-                        let bg = sim.gradient().eval_continuous(sim.dem()[n] / max);
-                        buf[(u16::try_from(x * 2).unwrap(), u16::try_from(y).unwrap())]
-                            .set_bg(Rgb(bg.r, bg.g, bg.b));
-                        buf[(u16::try_from(x * 2 + 1).unwrap(), u16::try_from(y).unwrap())]
-                            .set_bg(Rgb(bg.r, bg.g, bg.b));
-                    }
-                }
-            })?;
-            if play {
-                sim.step()?;
-                if terminal.get_frame().count() - start_frame >= 128 {
-                    sim.restart()?;
-                    start_frame = terminal.get_frame().count();
-                }
+            .render_ref(rect, buf);
+        }
+    }
+}
+
+pub struct Tile<'a> {
+    pub fillstate: &'a ZhouFillState<'a, f64>,
+    pub gradient: Gradient,
+}
+
+impl WidgetRef for Tile<'_> {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+        // RatatuiLogo::tiny().render(area, buf);
+        let sim = self.fillstate;
+        let max = sim.dem.iter().map(|v| OrderedFloat(*v)).max().unwrap().0;
+        for y in 0..area.height {
+            for x in (0..area.width).step_by(2) {
+                let n = sim.meta.xy_to_i(usize::from(x / 2), usize::from(y));
+                let bg = if sim.labels[n] == 0 {
+                    self.gradient.eval_continuous((max - sim.dem[n]) / max)
+                } else {
+                    colorous::PAIRED[sim.labels[n] as usize % colorous::PAIRED.len()]
+                };
+                let tx = area.left() + x;
+                let ty = area.top() + y;
+                buf[(tx, ty)].set_bg(Color::Rgb(bg.r, bg.g, bg.b));
+                buf[(tx + 1, ty)].set_bg(Color::Rgb(bg.r, bg.g, bg.b));
             }
         }
-    })
+        // mark all items in the priority queue with an O for Open
+        sim.priority_queue.iter().enumerate().for_each(|(i, c)| {
+            let (x, y) = (c.x, c.y);
+            let color = self
+                .gradient
+                .eval_rational(sim.priority_queue.len() - i, sim.priority_queue.len());
+            buf[(
+                area.left() + u16::try_from(x * 2).unwrap(),
+                area.top() + u16::try_from(y).unwrap(),
+            )]
+                .set_char('O');
+            buf[(
+                area.left() + u16::try_from(x * 2 + 1).unwrap(),
+                area.top() + u16::try_from(y).unwrap(),
+            )]
+                .set_fg(Color::Rgb(color.r, color.g, color.b));
+        });
+        // mark all depression_queue cells in the plain queue with a P
+        sim.depression_queue.iter().for_each(|c| {
+            let (x, y) = sim.meta.i_to_xy(*c);
+            buf[(
+                area.left() + 1 + 2 * u16::try_from(x).unwrap(),
+                area.top() + u16::try_from(y).unwrap(),
+            )]
+                .set_char('P');
+        });
+        // mark all slope_queue cells with an R
+        sim.slope_queue.iter().for_each(|c| {
+            let (x, y) = sim.meta.i_to_xy(*c);
+            buf[(
+                area.left() + 1 + 2 * u16::try_from(x).unwrap(),
+                area.top() + u16::try_from(y).unwrap(),
+            )]
+                .set_char('R');
+        });
+    }
 }
+
+// struct Grid<'a> {
+//     ncols: usize,
+//     nrows: usize,
+//     tile_width: u16,
+//     tile_height: u16,
+//     tiles: Vec<Tile<'a>>,
+// }
+
+// impl WidgetRef for Grid<'_> {
+//     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+//         let col_constraints = (0..self.ncols).map(|_| Constraint::Length(self.tile_width * 2));
+//         let row_constraints = (0..self.nrows).map(|_| Constraint::Length(self.tile_height));
+//         let horizontal = Layout::horizontal(col_constraints).spacing(2);
+//         let vertical = Layout::vertical(row_constraints).spacing(1);
+
+//         let rows = vertical.split(area);
+//         let rects = rows.iter().flat_map(|&row| horizontal.split(row).to_vec());
+
+//         for (rect, tile) in rects.zip(&self.tiles) {
+//             tile.render_ref(rect, buf);
+//         }
+//     }
+// }

@@ -16,6 +16,6 @@ oxscape = {version = "0.1", path = "../oxscape"}
 oxscape_erode = {version = "0.1", path = "../oxscape_erode", default-features=false}
 oxscape_tile = {version = "0.1", path= "../oxscape_tile"}
 rand = "0.9.2"
-ratatui = "0.30.0"
+ratatui = {version="0.30.0",features=["unstable-widget-ref"]}
 rayon = "1.11.0"
 

@@ -56,7 +56,7 @@ fn test_create_sim_3() {
         let lvls = sim.levels();
         res = (0..lvls.length()).map(|i| lvls.get_index(i)).collect();
     }
-    assert_eq!(res, &[0,8,9]);
+    assert_eq!(res, &[0, 8, 9]);
     let res: Vec<u32>;
     unsafe {
         let stack = sim.stack();

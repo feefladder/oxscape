@@ -8,7 +8,7 @@ use colorous::Gradient;
 use ordered_float::OrderedFloat;
 use oxscape::GridMeta;
 use oxscape_tile::fill::ROI_FLAG;
-use oxscape_tile::{fill::ZhouFillState};
+use oxscape_tile::fill::ZhouFillState;
 use ratatui::crossterm::event::{self, Event, KeyCode};
 use ratatui::prelude::*;
 use ratatui::widgets::WidgetRef;
