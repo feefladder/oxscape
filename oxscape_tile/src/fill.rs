@@ -3,7 +3,7 @@ use std::collections::{BinaryHeap, HashMap, VecDeque};
 use ordered_float::FloatCore;
 use oxscape::GridMeta;
 
-use crate::{Cell, TLabel, get_new_label};
+use crate::{Cell, TLabel};
 
 /// flag bit for the region of interest.
 ///
@@ -15,7 +15,10 @@ pub const ROI_FLAG: TLabel = 1 << (std::mem::size_of::<TLabel>() * 8 - 1);
 
 pub type Graph<T> = Vec<HashMap<TLabel, T>>;
 
-/// Float trait doesn't provide the next_up() function, so there's this trait..
+/// Provides the `next_up()` function on floats
+/// 
+/// Float trait doesn't provide the next_up() function needed for epsilon depression filling, so
+/// there's this trait..
 pub trait NextUp {
     fn next_up(&self) -> Self;
 }
@@ -31,6 +34,8 @@ impl NextUp for f64 {
         f64::next_up(*self)
     }
 }
+
+#[derive(Debug, Clone)]
 pub struct ZhouFillState<T: FloatCore> {
     /// The priority queue that holds boundary cells
     priority_queue: BinaryHeap<Cell<T>>,
@@ -183,15 +188,15 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
             if labels[n] == 0 {
                 let mut neighbour = false;
                 // otherwise, we can take a label from a neighbouring lower cell
-                // for dir in 0..8 {
-                //     let Some(nn) = meta.try_shift(c.x, c.y, dir) else {
-                //         continue;
-                //     };
-                //     // if labels[nn] != 0 && dem[nn] < dem[n] {
-                //     //     labels[n] = labels[nn];
-                //     //     neighbour = true;
-                //     // }
-                // }
+                for dir in 0..8 {
+                    let Some(nn) = meta.try_shift(c.x, c.y, dir) else {
+                        continue;
+                    };
+                    if labels[nn] != 0 && dem[nn] < dem[n] {
+                        labels[n] = labels[nn];
+                        neighbour = true;
+                    }
+                }
                 if !neighbour {
                     self.current_label += 1;
                     labels[n] = self.current_label
@@ -224,6 +229,7 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
 /// Fill a dem using the Zhou filling algorithm
 pub fn fill_zhou2016<T: FloatCore + NextUp>(meta: &GridMeta, dem: &mut [T], labels: &mut [TLabel]) {
     let mut state = ZhouFillState::new(2);
+    state.add_edge(meta, dem);
     while state.step(meta, dem, labels) {}
 }
 
@@ -248,12 +254,12 @@ mod test {
         ].map(|v| v as f64);
         let mut labels = vec![0;dem.len()];
         let expected = [
-            15,15,14,15,12,6,12,
-            14,13,11,12,15,17,15,
-            15,15,11,11, 8,15,15,
-            16,17,11,16,15, 7, 5,
-            19,18,19,18,17,15,14,
-        ].map(|v| v as f64);
+            15.0,15.0,14.0,15.0,12.0, 6.0,12.0,
+            14.0,13.0,11.0f64.next_up(),12.0,15.0,17.0,15.0,
+            15.0,15.0,11.0f64.next_up(),11.0, 8.0,15.0,15.0,
+            16.0,17.0,11.0f64.next_up(),16.0,15.0, 7.0, 5.0,
+            19.0,18.0,19.0,18.0,17.0,15.0,14.0,
+        ];
         fill_zhou2016(&GridMeta::new(7, 5), &mut dem, &mut labels);
         assert_eq!(dem, expected);
     }
