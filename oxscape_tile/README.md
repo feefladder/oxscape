@@ -13,4 +13,4 @@ I realized it may be possible with like a priority-flood if the area of interest
 
 So that can actually be done by taking the Zhou depression filling algorithm (that has a slope plain queue), adding a boolean `is_roi` flag and initializing the slope queue with that. --I think...
 
-
+The roi flag thing works well for finding a cat

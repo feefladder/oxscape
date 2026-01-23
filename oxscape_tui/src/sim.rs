@@ -48,10 +48,6 @@ impl DefaultSim {
         params: Params,
         gradient: Gradient,
     ) -> Result<Self> {
-        let params = Params {
-            cell_area: 10000.0,
-            ..Default::default()
-        };
         let order = Order::from_dem_metric(meta, &dem, &mut Dinf)
             .map_err(|e| Report::msg(e.to_string()))?;
         let mut acc = vec![0.0; order.meta().size()];

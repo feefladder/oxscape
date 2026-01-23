@@ -14,7 +14,7 @@ use oxscape_erode::Params;
 use oxscape_tui::{
     Simulation,
     sim::DefaultSim,
-    tile::{self, Tile, TiledSim},
+    tile::{Tile, TiledSim},
 };
 use ratatui::prelude::*;
 use ratatui::widgets::WidgetRef;
@@ -24,20 +24,26 @@ enum Mode {
     Full(DefaultSim),
     Fill {
         sim: Tile,
+        unseeded_sim: Tile,
         flow_accumulation: Vec<f64>,
     },
-    Tiled(TiledSim),
+    Tiled{
+        tiled_sim: TiledSim,
+        flow_accumulation: Vec<f64>,
+    },
 }
 
 impl Mode {
     fn step(&mut self) -> Result<()> {
         match self {
             Mode::Full(sim) => sim.step(),
-            Mode::Fill { sim, .. } => {
+            Mode::Fill { sim, unseeded_sim,.. } => {
                 sim.step();
+                unseeded_sim.step();
                 Ok(())
             }
-            Mode::Tiled(tsim) => tsim.step(),
+            Mode::Tiled{
+                tiled_sim,..} => tiled_sim.step(),
         }
     }
 }
@@ -46,8 +52,27 @@ impl WidgetRef for Mode {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         match self {
             Mode::Full(sim) => sim.render_ref(area, buf),
-            Mode::Fill { sim, .. } => sim.render_ref(area, buf),
-            Mode::Tiled(tiled_sim) => tiled_sim.render_ref(area, buf),
+            Mode::Fill { sim, unseeded_sim,flow_accumulation } => {
+                assert_eq!(sim.meta().size(), unseeded_sim.meta().size());
+                // let min_acc = flow_accumulation.par_iter().min_by(|a,b| a.total_cmp(*b)).unwrap();
+                let max_acc = flow_accumulation.par_iter().max_by(|a,b| a.total_cmp(*b)).unwrap();
+                for i in 0..sim.meta().size() {
+                    let (x,y) = sim.meta().i_to_xy(i);
+                    let tx = u16::try_from(x*2).unwrap() + area.left();
+                    let ty = u16::try_from(y).unwrap() + area.top();
+                    if sim.labels()[i] != unseeded_sim.labels()[i] {
+                        let c = colorous::PAIRED[unseeded_sim.labels()[i] as usize%12];
+                        buf[(tx,ty)].set_bg(Color::Rgb(c.r,c.g,c.b));
+                        let c = colorous::MAGMA.eval_continuous(flow_accumulation[i].sqrt()/max_acc.sqrt());
+                        buf[(tx+1,ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
+                    } else {
+                        let c = colorous::MAGMA.eval_continuous(flow_accumulation[i].sqrt()/max_acc.sqrt());
+                        buf[(tx,ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
+                        buf[(tx+1,ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
+                    }
+                }
+            },
+            Mode::Tiled{tiled_sim,..} => tiled_sim.render_ref(area, buf),
         }
     }
 }
@@ -89,7 +114,10 @@ fn main() -> Result<()> {
                             sim.restart()?;
                             start_frame = terminal.get_frame().count();
                         }
-                        Mode::Fill { sim, .. } => while sim.step() {},
+                        Mode::Fill { sim, unseeded_sim,.. } => {
+                            while sim.step() {}
+                            while unseeded_sim.step() {}
+                        },
                         _ => todo!(),
                     },
                     KeyCode::Right => mode.step()?,
@@ -105,6 +133,7 @@ fn main() -> Result<()> {
                                 // move to tiled.
                                 let mut fill_sim = Tile::new(
                                     sim.dem().to_vec(),
+                                    1,
                                     vec![0; sim.meta().size()],
                                     sim.meta().clone(),
                                     min,
@@ -121,16 +150,19 @@ fn main() -> Result<()> {
                                     .unwrap();
                                 // first get tile index
                                 fill_sim.add_edge();
+                                let unseeded_sim = fill_sim.clone();
                                 fill_sim.seed_slope(&[max_idx]);
                                 mode = Mode::Fill {
                                     sim: fill_sim,
+                                    unseeded_sim,
                                     flow_accumulation: sim.accum().to_vec(),
                                 };
-                                // tiled animation is slow, so we want to play it
-                                play = true;
+                                // fill animation is slow, so we want to play it
+                                play = false;
                             }
                             Mode::Fill {
                                 sim,
+                                unseeded_sim: _,
                                 flow_accumulation,
                             } => {
                                 // move to tiled.
@@ -139,7 +171,7 @@ fn main() -> Result<()> {
                                     sim.meta(),
                                     usize::from(tile_size),
                                     2,
-                                    &[colorous::MAGMA],// colorous::INFERNO, colorous::VIRIDIS],
+                                    &[colorous::CUBEHELIX],// colorous::INFERNO, colorous::VIRIDIS],
                                 );
                                 // seed with max accumulation
                                 let max_idx = flow_accumulation
@@ -151,11 +183,11 @@ fn main() -> Result<()> {
                                 let (max_x, max_y) = sim.meta().i_to_xy(max_idx);
                                 // first get tile index
                                 tsim.seed_slope(max_x, max_y);
-                                mode = Mode::Tiled(tsim);
+                                mode = Mode::Tiled{tiled_sim: tsim, flow_accumulation};
                                 // tiled animation is slow, so we want to play it
                                 play = false;
                             }
-                            Mode::Tiled(ref t) => {
+                            Mode::Tiled{tiled_sim: ref t, ..} => {
                                 // move from tiled to normal
                                 let ts = usize::from(tile_size);
                                 let meta_full =

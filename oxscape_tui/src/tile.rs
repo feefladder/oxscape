@@ -12,14 +12,16 @@ use rayon::prelude::*;
 
 use crate::Simulation;
 
-const NOT_INTERESTING: f64 = f64::MIN;
+const NOT_INTERESTING: f64 = f64::MAX;
 
 pub struct TiledSim {
     meta: GridMeta,
     tile_size: usize,
     tiles: Vec<Tile>,
+    /// queue for currently processing tiles
+    tile_queue: Vec<usize>,
+    /// tiles that are finished and should not be added to the queue
     finished: Vec<bool>,
-    playing: Vec<bool>,
 }
 
 impl Simulation for TiledSim {
@@ -36,24 +38,28 @@ impl Simulation for TiledSim {
     }
 
     fn step(&mut self) -> Result<()> {
-        self.tiles
-            .par_iter_mut()
-            .enumerate()
-            .zip(&mut self.finished)
-            .filter(|((i, _), _)| self.playing[*i])
-            .for_each(|((_, tile), finished)| {
-                *finished = !tile.step();
-            });
+        // So the better thing here would be to have a tile return its edge information and then
+        // tell the other tile to check whether it should be further added to the tile queue
+        // also I should be really doing this graph thing right now...
+        // and ideally we should be both doing the normal depression filling, as well as this roi-searching depression filling...
+        // but the roi part messes things up a bit...
+        // ah! we can just initialize the tile queue as a full queue for the non-searching version
+        let level_finished = self.tile_queue.iter().all(|idx| !self.tiles[*idx].step());
+        if level_finished {
+            
+        }
         for tile_idx in self
             .finished
             .iter()
             .enumerate()
-            .filter(|(idx, finished)| **finished && self.playing[*idx])
+            // .filter(|(idx, finished)| **finished && self.playing[*idx])
             .map(|(idx, _)| idx)
             .collect::<Vec<_>>()
         {
             // self.finished[tile_idx] = false;
-            self.playing[tile_idx] = false;
+
+            // self.playing[tile_idx] = false;
+            
             // so now we have to initialize neighbouring tiles....
             // I always wanted a u8 bitmask
             //  2  4  8
@@ -90,7 +96,7 @@ impl Simulation for TiledSim {
                             .collect::<Vec<_>>();
                     }
                     if !idxs.is_empty() {
-                        self.playing[left_tile_idx] = true;
+                        // self.playing[left_tile_idx] = true;
                         self.tiles[left_tile_idx].add_edge();
                         self.tiles[left_tile_idx].seed_slope(&idxs);
                     }
@@ -116,7 +122,7 @@ impl Simulation for TiledSim {
                             .collect::<Vec<_>>();
                     }
                     if !idxs.is_empty() {
-                        self.playing[top_tile_idx] = true;
+                        // self.playing[top_tile_idx] = true;
                         self.tiles[top_tile_idx].add_edge();
                         self.tiles[top_tile_idx].seed_slope(&idxs);
                     }
@@ -144,7 +150,7 @@ impl Simulation for TiledSim {
                             .collect::<Vec<_>>();
                     }
                     if !idxs.is_empty() {
-                        self.playing[right_tile_idx] = true;
+                        // self.playing[right_tile_idx] = true;
                         self.tiles[right_tile_idx].add_edge();
                         self.tiles[right_tile_idx].seed_slope(&idxs);
                     }
@@ -172,87 +178,87 @@ impl Simulation for TiledSim {
                             .collect::<Vec<_>>();
                     }
                     if !idxs.is_empty() {
-                        self.playing[bot_tile_idx] = true;
+                        // self.playing[bot_tile_idx] = true;
                         self.tiles[bot_tile_idx].add_edge();
                         self.tiles[bot_tile_idx].seed_slope(&idxs);
                     }
                 }
             }
-            // top-left corner
-            if let Some(tl_tile_idx) = self.meta.try_shift(tile_x, tile_y, 1) {
-                if !self.finished[tl_tile_idx] {
-                    if tile_labels[0] & ROI_FLAG == ROI_FLAG {
-                        if *self.tiles[tl_tile_idx].dem().last().unwrap() > tile_dem[0] {
-                            self.playing[tl_tile_idx] = true;
-                            self.tiles[tl_tile_idx].add_edge();
-                            self.tiles[tl_tile_idx].seed_slope(&[tile_meta.size() - 1]);
-                        }
-                    }
-                }
-            }
-            // top-right corner
-            if let Some(tr_tile_idx) = self.meta.try_shift(tile_x, tile_y, 3) {
-                if !self.finished[tr_tile_idx] {
-                    let tr_idx = tile_meta.xy_to_i(tile_meta.width() - 1, 0);
-                    if tile_labels[tr_idx] & ROI_FLAG == ROI_FLAG {
-                        if let Some(idx) = {
-                            let tr_tile = &self.tiles()[tr_tile_idx];
-                            let tr_bl_idx = tr_tile.meta().xy_to_i(0, tr_tile.meta().height() - 1);
-                            if tr_tile.dem()[tr_bl_idx] > tile_dem[tr_idx] {
-                                Some(tr_bl_idx)
-                            } else {
-                                None
-                            }
-                        } {
-                            self.playing[tr_tile_idx] = true;
-                            self.tiles[tr_tile_idx].add_edge();
-                            self.tiles[tr_tile_idx].seed_slope(&[idx]);
-                        }
-                    }
-                }
-            }
-            // bottom-right corner
-            if let Some(br_tile_idx) = self.meta.try_shift(tile_x, tile_y, 5) {
-                if !self.finished[br_tile_idx] {
-                    let br_idx = tile_meta.xy_to_i(tile_meta.width() - 1, tile_meta.height() - 1);
-                    if tile_labels[br_idx] & ROI_FLAG == ROI_FLAG {
-                        if let Some(idx) = {
-                            let br_tile = &self.tiles()[br_tile_idx];
-                            let br_tl_idx = br_tile.meta().xy_to_i(0, 0);
-                            if br_tile.dem()[br_tl_idx] > tile_dem[br_idx] {
-                                Some(br_tl_idx)
-                            } else {
-                                None
-                            }
-                        } {
-                            self.playing[br_tile_idx] = true;
-                            self.tiles[br_tile_idx].add_edge();
-                            self.tiles[br_tile_idx].seed_slope(&[idx]);
-                        }
-                    }
-                }
-            }
-            // bottom-left corner
-            if let Some(bl_tile_idx) = self.meta.try_shift(tile_x, tile_y, 7) {
-                if !self.finished[bl_tile_idx] {
-                    let bl_idx = tile_meta.xy_to_i(0, tile_meta.height() - 1);
-                    if tile_labels[bl_idx] & ROI_FLAG == ROI_FLAG {
-                        if let Some(idx) = {
-                            let bl_tile = &self.tiles()[bl_tile_idx];
-                            let bl_tr_idx = bl_tile.meta().xy_to_i(bl_tile.meta().width() - 1, 0);
-                            if bl_tile.dem()[bl_tr_idx] > tile_dem[bl_idx] {
-                                Some(bl_tr_idx)
-                            } else {
-                                None
-                            }
-                        } {
-                            self.playing[bl_tile_idx] = true;
-                            self.tiles[bl_tile_idx].add_edge();
-                            self.tiles[bl_tile_idx].seed_slope(&[idx]);
-                        }
-                    }
-                }
-            }
+        //     // top-left corner
+        //     if let Some(tl_tile_idx) = self.meta.try_shift(tile_x, tile_y, 1) {
+        //         if !self.finished[tl_tile_idx] {
+        //             if tile_labels[0] & ROI_FLAG == ROI_FLAG {
+        //                 if *self.tiles[tl_tile_idx].dem().last().unwrap() > tile_dem[0] {
+        //                     self.playing[tl_tile_idx] = true;
+        //                     self.tiles[tl_tile_idx].add_edge();
+        //                     self.tiles[tl_tile_idx].seed_slope(&[tile_meta.size() - 1]);
+        //                 }
+        //             }
+        //         }
+        //     }
+        //     // top-right corner
+        //     if let Some(tr_tile_idx) = self.meta.try_shift(tile_x, tile_y, 3) {
+        //         if !self.finished[tr_tile_idx] {
+        //             let tr_idx = tile_meta.xy_to_i(tile_meta.width() - 1, 0);
+        //             if tile_labels[tr_idx] & ROI_FLAG == ROI_FLAG {
+        //                 if let Some(idx) = {
+        //                     let tr_tile = &self.tiles()[tr_tile_idx];
+        //                     let tr_bl_idx = tr_tile.meta().xy_to_i(0, tr_tile.meta().height() - 1);
+        //                     if tr_tile.dem()[tr_bl_idx] > tile_dem[tr_idx] {
+        //                         Some(tr_bl_idx)
+        //                     } else {
+        //                         None
+        //                     }
+        //                 } {
+        //                     self.playing[tr_tile_idx] = true;
+        //                     self.tiles[tr_tile_idx].add_edge();
+        //                     self.tiles[tr_tile_idx].seed_slope(&[idx]);
+        //                 }
+        //             }
+        //         }
+        //     }
+        //     // bottom-right corner
+        //     if let Some(br_tile_idx) = self.meta.try_shift(tile_x, tile_y, 5) {
+        //         if !self.finished[br_tile_idx] {
+        //             let br_idx = tile_meta.xy_to_i(tile_meta.width() - 1, tile_meta.height() - 1);
+        //             if tile_labels[br_idx] & ROI_FLAG == ROI_FLAG {
+        //                 if let Some(idx) = {
+        //                     let br_tile = &self.tiles()[br_tile_idx];
+        //                     let br_tl_idx = br_tile.meta().xy_to_i(0, 0);
+        //                     if br_tile.dem()[br_tl_idx] > tile_dem[br_idx] {
+        //                         Some(br_tl_idx)
+        //                     } else {
+        //                         None
+        //                     }
+        //                 } {
+        //                     self.playing[br_tile_idx] = true;
+        //                     self.tiles[br_tile_idx].add_edge();
+        //                     self.tiles[br_tile_idx].seed_slope(&[idx]);
+        //                 }
+        //             }
+        //         }
+        //     }
+        //     // bottom-left corner
+        //     if let Some(bl_tile_idx) = self.meta.try_shift(tile_x, tile_y, 7) {
+        //         if !self.finished[bl_tile_idx] {
+        //             let bl_idx = tile_meta.xy_to_i(0, tile_meta.height() - 1);
+        //             if tile_labels[bl_idx] & ROI_FLAG == ROI_FLAG {
+        //                 if let Some(idx) = {
+        //                     let bl_tile = &self.tiles()[bl_tile_idx];
+        //                     let bl_tr_idx = bl_tile.meta().xy_to_i(bl_tile.meta().width() - 1, 0);
+        //                     if bl_tile.dem()[bl_tr_idx] > tile_dem[bl_idx] {
+        //                         Some(bl_tr_idx)
+        //                     } else {
+        //                         None
+        //                     }
+        //                 } {
+        //                     self.playing[bl_tile_idx] = true;
+        //                     self.tiles[bl_tile_idx].add_edge();
+        //                     self.tiles[bl_tile_idx].seed_slope(&[idx]);
+        //                 }
+        //             }
+        //         }
+        //     }
         }
         Ok(())
     }
@@ -270,7 +276,7 @@ impl WidgetRef for TiledSim {
         let rects = rows.iter().flat_map(|&row| horizontal.split(row).to_vec());
 
         for (idx, (rect, tile)) in rects.zip(&self.tiles).enumerate() {
-            if self.playing[idx] {
+            if self.tile_queue.contains(&idx) {
                 Paragraph::new(format!("Area {:02}", idx + 1))
                     .block(ratatui::widgets::Block::bordered())
                     .render(rect, buf);
@@ -290,7 +296,7 @@ impl TiledSim {
     pub fn seed_slope(&mut self, x: usize, y: usize) {
         let tile_idx = self.meta.xy_to_i(x / self.tile_size, y / self.tile_size);
         let tile = &mut self.tiles[tile_idx];
-        self.playing[tile_idx] = true;
+        self.tile_queue.push(tile_idx);
         tile.add_edge();
         tile.seed_slope(&[tile.meta.xy_to_i(x % self.tile_size, y % self.tile_size)]);
     }
@@ -309,8 +315,8 @@ impl TiledSim {
         let mut res = Self {
             tiles: Vec::with_capacity(super_meta.size()),
             tile_size,
-            finished: vec![false; super_meta.size()],
-            playing: vec![false; super_meta.size()],
+            tile_queue: Vec::new(),
+            finished: vec![false;super_meta.size()],
             meta: super_meta,
         };
         for tile_idx in 0..res.meta.size() {
@@ -319,12 +325,13 @@ impl TiledSim {
             let tile_meta = GridMeta::new(tile_size, tile_size);
             let mut tdem = vec![0.0; tile_meta.size()];
             for (row_in_tile, row) in tdem.chunks_exact_mut(tile_meta.width()).enumerate() {
-                // here also we use tile_size, because it ?will? be different on edge tiles?
+                // TODO: here also we use tile_size, because it ?will? be different on edge tiles?
                 let row_idx = meta.xy_to_i(tile_x * tile_size, tile_y * tile_size + row_in_tile);
                 row.copy_from_slice(&dem[row_idx..row_idx + tile_meta.width()]);
             }
             res.tiles.push(Tile::new(
                 tdem,
+                start_label,
                 vec![0; tile_meta.size()],
                 tile_meta,
                 min,
@@ -336,26 +343,28 @@ impl TiledSim {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Tile {
     dem: Vec<f64>,
     labels: Vec<TLabel>,
     meta: GridMeta,
     fillstate: ZhouFillState<f64>,
-    min: f64,
-    max: f64,
-    gradient: Gradient,
+    pub min: f64,
+    pub max: f64,
+    pub gradient: Gradient,
 }
 
 impl Tile {
     pub fn new(
         dem: Vec<f64>,
+        start_label: TLabel,
         labels: Vec<TLabel>,
         meta: GridMeta,
         min: f64,
         max: f64,
         gradient: Gradient,
     ) -> Self {
-        let mut fillstate = ZhouFillState::new(2);
+        let fillstate = ZhouFillState::new(start_label);
         Self {
             dem,
             labels,
@@ -385,6 +394,9 @@ impl Tile {
     pub fn meta(&self) -> &GridMeta {
         &self.meta
     }
+    pub fn labels(&self) -> &[TLabel] {
+        &self.labels
+    }
 }
 
 impl WidgetRef for Tile {
@@ -395,11 +407,11 @@ impl WidgetRef for Tile {
             let x = u16::try_from(dem_x * 2).unwrap() + area.left();
             let y = u16::try_from(dem_y).unwrap() + area.top();
             // let color =
-            let color = /*if *l != 0 {
+            let color = if *l != 0 {
                 colorous::PAIRED[*l as usize % 12]
-            } else {*/
+            } else {
                 self.gradient.eval_continuous((z - self.min) / self.max)
-            /*}*/;
+            };
             buf[(x, y)].set_bg(Color::Rgb(color.r, color.g, color.b));
             buf[(x + 1, y)].set_bg(Color::Rgb(color.r, color.g, color.b));
             if (self.labels[idx] & ROI_FLAG) == ROI_FLAG {

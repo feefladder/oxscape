@@ -6,6 +6,9 @@ use std::{
 };
 
 pub mod fill;
+pub mod consumer;
+pub mod producer;
+pub mod tile;
 pub type TLabel = u32;
 
 /// A struct that implements Ord in reverse order
