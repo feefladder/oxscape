@@ -39,7 +39,7 @@ pub fn random_dem(dem: &mut [f64], meta: &GridMeta, seed: u64) -> Result<()> {
                 row[i] = rng.random_range(0.0..1.0);
             }
         });
-    fill_zhou2016(meta, dem);
+    fill_zhou2016(meta, dem, &mut vec![0; dem.len()]);
     Ok(())
 }
 

@@ -17,12 +17,12 @@ use rayon::prelude::*;
 use crate::{DIRS, Simulation, random_dem};
 
 pub struct DefaultSim {
-    pub gradient: Gradient,
-    pub dem: Vec<f64>,
-    pub accum: Vec<f64>,
-    pub order: Order,
-    pub params: Params,
-    pub seed: u64,
+    gradient: Gradient,
+    dem: Vec<f64>,
+    accum: Vec<f64>,
+    order: Order,
+    params: Params,
+    seed: u64,
 }
 
 impl DefaultSim {
@@ -37,6 +37,34 @@ impl DefaultSim {
     pub fn order(&self) -> &Order {
         &self.order
     }
+
+    pub fn meta(&self) -> &GridMeta {
+        self.order.meta()
+    }
+
+    pub fn from_dem(
+        dem: Vec<f64>,
+        meta: GridMeta,
+        params: Params,
+        gradient: Gradient,
+    ) -> Result<Self> {
+        let params = Params {
+            cell_area: 10000.0,
+            ..Default::default()
+        };
+        let order = Order::from_dem_metric(meta, &dem, &mut Dinf)
+            .map_err(|e| Report::msg(e.to_string()))?;
+        let mut acc = vec![0.0; order.meta().size()];
+        accum(&order, &params, &mut acc);
+        Ok(Self {
+            gradient,
+            dem,
+            accum: acc,
+            order,
+            params,
+            seed: 42,
+        })
+    }
 }
 
 impl Simulation for DefaultSim {
@@ -49,6 +77,7 @@ impl Simulation for DefaultSim {
 
         let mut dem = vec![0.0; meta.size()];
         random_dem(&mut dem, &meta, 42).map_err(|e| Report::msg(e.to_string()))?;
+        fill_zhou2016(&meta, &mut dem, &mut vec![0; meta.size()]);
         let order = Order::from_dem_metric(meta, &dem, &mut Dinf)
             .map_err(|e| Report::msg(e.to_string()))?;
 
@@ -76,6 +105,11 @@ impl Simulation for DefaultSim {
         self.seed += 1;
         random_dem(&mut self.dem, self.order.meta(), self.seed)
             .map_err(|e| Report::msg(e.to_string()))?;
+        fill_zhou2016(
+            &self.order.meta(),
+            &mut self.dem,
+            &mut vec![0; self.order.meta().size()],
+        );
         self.order
             .reorder(&self.dem, &mut Dinf)
             .map_err(|e| Report::msg(e.to_string()))
