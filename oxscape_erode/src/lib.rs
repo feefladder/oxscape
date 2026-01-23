@@ -1,3 +1,4 @@
+#![warn(clippy::pedantic)]
 pub mod mflow;
 pub mod sflow;
 use rayon::prelude::*;

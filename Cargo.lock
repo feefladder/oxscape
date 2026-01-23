@@ -933,6 +933,7 @@ dependencies = [
 name = "oxscape_erode"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "num-traits",
  "ordered-float 5.1.0",
  "oxscape",

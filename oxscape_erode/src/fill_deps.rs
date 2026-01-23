@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use ordered_float::OrderedFloat;
 use oxscape::{GridMeta, Result};
 use std::cmp::Ordering;
@@ -126,7 +127,9 @@ fn process_trace_queue(
 }
 
 pub fn priority_flood_wei2018(dem: &mut [f64], meta: &GridMeta) -> Result<()> {
-    meta.check_dem(dem)?;
+    if meta.size() != dem.len() {
+        return Err(anyhow!("meta dem mismatch"));
+    }
 
     let mut flag = vec![false; meta.size()];
     let mut pq = BinaryHeap::<CellZ>::new();

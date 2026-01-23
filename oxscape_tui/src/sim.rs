@@ -26,18 +26,22 @@ pub struct DefaultSim {
 }
 
 impl DefaultSim {
+    #[must_use] 
     pub fn dem(&self) -> &[f64] {
         &self.dem
     }
 
+    #[must_use] 
     pub fn accum(&self) -> &[f64] {
         &self.accum
     }
 
+    #[must_use] 
     pub fn order(&self) -> &Order {
         &self.order
     }
 
+    #[must_use] 
     pub fn meta(&self) -> &GridMeta {
         self.order.meta()
     }
@@ -102,7 +106,7 @@ impl Simulation for DefaultSim {
         random_dem(&mut self.dem, self.order.meta(), self.seed)
             .map_err(|e| Report::msg(e.to_string()))?;
         fill_zhou2016(
-            &self.order.meta(),
+            self.order.meta(),
             &mut self.dem,
             &mut vec![0; self.order.meta().size()],
         );

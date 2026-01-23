@@ -6,7 +6,7 @@ use rayon::prelude::*;
 ///The receiver of a focal cell is the cell which receives the focal cells'
 ///flow. Here, we model the receiving cell as being the one connected to the
 ///focal cell by the steepest gradient. If there is no local gradient, then
-///the special value NO_FLOW is assigned.
+///the special value `NO_FLOW` is assigned.
 pub fn compute_receivers<T: Float + From<f64> + Sync>(meta: &GridMeta, h: &[T], rec: &mut [u8]) {
     rec.fill(NO_FLOW);
     rec.par_chunks_exact_mut(meta.width)

@@ -5,10 +5,11 @@ use rayon::prelude::*;
 
 pub const NO_FLOW: u8 = 8;
 
+#[allow(clippy::cast_precision_loss)]
 pub fn generate_boring_terrain(dem: &mut [f64], start: f64, delta: f64) {
     dem.into_par_iter().enumerate().for_each(|(v, a)| {
         *a = start + v as f64 * delta;
-    })
+    });
 }
 
 /// Flow metric.
@@ -28,6 +29,8 @@ pub fn generate_boring_terrain(dem: &mut [f64], start: f64, delta: f64) {
 ///
 /// ```
 pub trait FlowMetric {
+    /// Implement the metric on the dem.
+    #[allow(clippy::missing_errors_doc)] // users implement this
     fn metric<T: Float + From<f64> + Sync>(
         &self,
         meta: &GridMeta,
@@ -52,6 +55,12 @@ fn compute_donors(meta: &GridMeta, rec: &[u8], donor: &mut [[usize; 8]]) {
 }
 
 /// parallelly compute donors.
+///
+/// # Safety
+///
+/// This function SHOULD give:
+/// - `NOT_A_DONOR` on all non-donor directions of all cells
+/// - the index of the donor otherwise
 fn compute_donors_par(meta: &GridMeta, rec: &[u8], donors: &mut [[usize; 8]]) {
     // In the single-flow case, it's more efficient to iterate receivers
     // because we don't have to check all neighbours of a donor
@@ -71,10 +80,13 @@ fn compute_donors_par(meta: &GridMeta, rec: &[u8], donors: &mut [[usize; 8]]) {
         let n: usize = meta.shift(idx, *dir);
         // bounds check
         assert!(n < meta.size);
+        // SAFETY: we are in-bounds: `donors.len()==meta.size>n`
+        let addr = unsafe { r.0.add(n * 8 + GridMeta::rev(usize::from(*dir))) };
         // SAFETY: we are the only cell from this direction.
         //
+        // that is: other cells will write to different direction indices in this array
         unsafe {
-            *r.0.add(n * 8 + GridMeta::rev(usize::from(*dir))) = idx;
+            *addr = idx;
         }
     });
 }
@@ -140,10 +152,12 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
     /// SAFETY: It is your responsibility to ensure:
     ///
     /// For the lifetime of Self:
-    /// - nothing reads arr[idx]
+    /// - nothing reads arr[idx], e.g. `&mut arr[idx]` is sound
     /// - nothing writes donors or receivers of this cell
     ///   - donors are defined as neighbouring cells that have flow pointing to this cell
+    ///     - `&arr[donors[dir]]` when `donors[dir]!=NOT_A_DONOR` is sound
     ///   - receivers are neighbouring cells that this cell flows into
+    ///     - `&arr[meta.shift(idx,reveiver)]` is sound
     unsafe fn new(
         arr: &'a Bazooka<T>,
         idx: usize,
@@ -162,32 +176,47 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
 
     /// Get mutable access to the current cell
     #[inline]
+    #[allow(clippy::missing_panics_doc)] // only panics on null pointer
     pub fn cell(&mut self) -> &mut T {
+        // SAFETY: this is the array index of ourselves
+        let addr = unsafe { self.arr.0.add(self.idx) };
         // SAFETY: nothing reads arr[idx]
-        unsafe { self.arr.0.add(self.idx).as_mut().unwrap() }
+        unsafe { addr.as_mut().unwrap() }
     }
 
     #[inline]
+    #[must_use]
     pub fn idx(&self) -> usize {
         self.idx
     }
 
     #[inline]
+    #[must_use]
     pub fn recv_dir(&self) -> u8 {
         self.receivers[self.idx]
     }
 
+    /// Get the single receiver of this cell
+    ///
+    /// # Panics
+    ///
+    /// if the receiver would be out-of-bounds.
     #[inline]
+    #[must_use]
     pub fn receiver(&self) -> T {
         let n = self.meta.shift(self.idx, self.receivers[self.idx]);
         assert!(n < self.meta.size);
+        // SAFETY:
+        // - meta.shift function casts to isize and back, so we are within `isize`
+        // - meta.shift is also guaranteed to output a value within the allocation
+        let addr = unsafe { self.arr.0.add(n) };
         // SAFETY: topological sorting is based on this flow metric.
-        // Therefore, any direction that is NOT NO_FLOW_GEN is in a
-        // different level and can be safely accessed.
-        unsafe { self.arr.0.add(n).read() }
+        // Therefore, the receiver is in a different (lower) level and can be safely accessed
+        unsafe { addr.read() }
     }
 
     #[inline]
+    #[must_use]
     pub fn donors(&self) -> [T; 8] {
         let mut res = [T::zero(); 8];
         #[allow(clippy::needless_range_loop)]
@@ -196,10 +225,15 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
             if don_idx == NOT_A_DONOR {
                 continue;
             }
+            // SAFETY: donors contains the array index of the array
+            // - [`compute_donors_par`] gives either an in-bounds value or `NOT_A_DONOR`
+            // - it will not overflow `isize`
+            // - it points to the same allocation
+            let addr = unsafe { self.arr.0.add(don_idx) };
             // SAFETY: topological sorting is based on this flow metric.
-            // Therefore, any direction that is NOT NO_FLOW_GEN is in a
-            // different level and can be safely accessed.
-            unsafe { res[dir] = self.arr.0.add(self.donors[self.idx][dir]).read() }
+            // Therefore, any direction that is NOT NOT_A_DONOR is in a
+            // different (higher) level and can be safely accessed.
+            res[dir] = unsafe { addr.read() }
         }
         res
     }
@@ -215,27 +249,33 @@ pub struct Order {
 }
 
 impl Order {
+    #[must_use]
     pub fn levels(&self) -> &[usize] {
         &self.levels
     }
 
+    #[must_use]
     pub fn stack(&self) -> &[usize] {
         &self.stack
     }
 
+    #[must_use]
     pub fn n_levels(&self) -> usize {
         self.levels.len() - 1
     }
 
+    #[must_use]
     pub fn meta(&self) -> &GridMeta {
         &self.meta
     }
 
+    #[must_use]
     pub fn receivers(&self) -> &[u8] {
         &self.receivers
     }
 
     /// Create an uninitialized order
+    #[must_use]
     pub fn empty(meta: GridMeta) -> Self {
         let receivers = vec![0; meta.size];
         let donors = vec![[0; 8]; meta.size];
@@ -251,6 +291,12 @@ impl Order {
         }
     }
 
+    /// Create an order from a supplied dem and a metric
+    ///
+    /// # Errors
+    ///
+    /// - if the supplied dem doesn't match the grid
+    /// - if the supplied metric gives an error
     pub fn from_dem_metric<M: FlowMetric>(
         meta: GridMeta,
         dem: &[f64],
@@ -265,7 +311,15 @@ impl Order {
     }
 
     /// re-calculate order with the given flow metric
+    ///
+    /// # Errors
+    ///
+    /// - if the supplied dem doesn't match the grid
+    /// - if the supplied metric gives an error
     pub fn reorder<M: FlowMetric>(&mut self, dem: &[f64], metric: &mut M) -> Result<()> {
+        if self.meta.size != dem.len() {
+            return Err(anyhow!("meta dem mismatch"));
+        }
         metric.metric(&self.meta, dem, &mut self.receivers)?;
         compute_donors_par(&self.meta, &self.receivers, &mut self.donors);
         generate_order(
@@ -277,6 +331,13 @@ impl Order {
         Ok(())
     }
 
+    /// iterate over levels bottom-to-top
+    ///
+    /// In this case, all receivers are already processed
+    ///  
+    /// # Panics
+    ///
+    /// if data doesn't match the grid size
     pub fn for_lvls_bottom_up<T: Zero + Copy + Send + Sync, F: Fn(&mut LevelAccessor<T>) + Sync>(
         &self,
         data: &mut [T],
@@ -301,12 +362,19 @@ impl Order {
                         &self.meta,
                         &self.donors,
                         &self.receivers,
-                    ))
+                    ));
                 }
             });
         }
     }
 
+    /// iterate over levels top-to-bottom
+    ///
+    /// In this case, all donors are already processed
+    ///  
+    /// # Panics
+    ///
+    /// if data doesn't match the grid size
     pub fn for_lvls_top_down<T: Zero + Copy + Send + Sync, F: Fn(&mut LevelAccessor<T>) + Sync>(
         &self,
         data: &mut [T],
@@ -330,7 +398,7 @@ impl Order {
                         &self.meta,
                         &self.donors,
                         &self.receivers,
-                    ))
+                    ));
                 }
             });
         }

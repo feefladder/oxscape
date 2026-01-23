@@ -186,7 +186,7 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
             let n = meta.xy_to_i(c.x, c.y);
             // assign a label if we don't already have one
             if labels[n] == 0 {
-                let mut neighbour = false;
+                let neighbour = false;
                 // otherwise, we can take a label from a neighbouring lower cell
                 for dir in 0..8 {
                     let Some(nn) = meta.try_shift(c.x, c.y, dir) else {

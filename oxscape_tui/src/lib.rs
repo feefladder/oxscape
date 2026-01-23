@@ -1,3 +1,4 @@
+#![warn(clippy::pedantic)]
 use color_eyre::Result;
 use colorous::Gradient;
 use oxscape::GridMeta;

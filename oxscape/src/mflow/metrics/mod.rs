@@ -7,6 +7,7 @@ use anyhow::Result;
 
 pub struct Dinf;
 
+// SAFETY: fm_dinf makes flow only point downstream (no cycles) and skips the edges of the grid (no x-wrapping or y-out-of-bounds-ness)
 unsafe impl FlowMetric for Dinf {
     fn metric(
         &mut self,

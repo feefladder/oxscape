@@ -1,3 +1,10 @@
+#![warn(
+    clippy::pedantic,
+    clippy::undocumented_unsafe_blocks,
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::unnecessary_safety_doc,
+    clippy::non_send_fields_in_send_ty
+)]
 pub mod mflow;
 pub mod sflow;
 
@@ -38,7 +45,16 @@ pub struct GridMeta {
 }
 
 impl GridMeta {
+    /// Create a new `GridMeta`
+    ///
+    /// # Panics
+    ///
+    /// if either `width` or `height` doesn't fit in `isize`
+    #[must_use]
+    #[allow(clippy::cast_possible_wrap)]
     pub const fn new(width: usize, height: usize) -> Self {
+        assert!(width <= isize::MAX as usize);
+        assert!(height <= isize::MAX as usize);
         let iwidth = width as isize;
         Self {
             width,
@@ -57,22 +73,17 @@ impl GridMeta {
         }
     }
 
-    pub fn check_dem<T>(&self, dem: &[T]) -> Result<()> {
-        if dem.len() != self.size {
-            Err(anyhow::anyhow!("size mismatch"))
-        } else {
-            Ok(())
-        }
-    }
-
+    #[must_use]
     pub const fn width(&self) -> usize {
         self.width
     }
 
+    #[must_use]
     pub const fn height(&self) -> usize {
         self.height
     }
 
+    #[must_use]
     pub const fn size(&self) -> usize {
         self.size
     }
@@ -92,11 +103,14 @@ impl GridMeta {
     ///     assert!(arr[(4 + meta.nshift()[i]) as usize] == i)
     /// }
     /// ```
+    #[must_use]
     pub fn nshift(&self) -> &[isize; 8] {
         &self.nshift
     }
 
     ///Offset from a focal cell's index to its neighbours in terms of flat indexing
+    ///
+    /// This function will x-wrap on edge cells
     ///
     /// ```
     /// # use oxscape::GridMeta;
@@ -110,7 +124,15 @@ impl GridMeta {
     /// for i in 0..8 {
     ///     assert!(arr[meta.shift(4,i)] == i)
     /// }
+    /// ```
+    /// # Panics
+    ///
+    /// if `idx>isize::MAX` or `shift()<0`
+    ///
+    ///
+    ///
     #[inline]
+    #[must_use]
     pub fn shift(&self, idx: usize, dir: u8) -> usize {
         (isize::try_from(idx).unwrap() + self.nshift[usize::from(dir)])
             .try_into()
@@ -118,7 +140,13 @@ impl GridMeta {
     }
 
     /// Try to offset in the given direction, returning `None` if it would be off the grid
+    ///
+    /// # Panics
+    ///
+    /// if either `x` or `y` doesn't fit in `isize`
     #[inline]
+    #[must_use]
+    #[allow(clippy::cast_sign_loss)] // input is usize and shifted value is grid-checked
     pub fn try_shift(&self, x: usize, y: usize, dir: u8) -> Option<usize> {
         let nx = isize::try_from(x).unwrap() + XSHIFT[usize::from(dir)];
         let ny = isize::try_from(y).unwrap() + YSHIFT[usize::from(dir)];
@@ -148,23 +176,35 @@ impl GridMeta {
     /// }
     /// ```
     #[inline]
+    #[must_use]
     pub const fn rev(n: usize) -> usize {
         (n + 4) % 8
     }
 
     #[inline]
+    #[must_use]
     pub const fn is_edge_cell(&self, x: usize, y: usize) -> bool {
         x == 0 || y == 0 || x == self.width - 1 || y == self.height - 1
     }
 
     #[inline]
+    #[must_use]
     pub const fn is_edge(&self, i: usize) -> bool {
         let (x, y) = self.i_to_xy(i);
         self.is_edge_cell(x, y)
     }
 
+    /// Checks whether the given values fit in the grid
+    ///
+    /// # Panics
+    ///
+    /// if either provided value doesn't fit in `isize`
     #[inline]
+    #[must_use]
+    #[allow(clippy::cast_possible_wrap)] // checked by assert
     pub const fn in_grid(&self, x: isize, y: isize) -> bool {
+        assert!(self.height < isize::MAX as usize);
+        assert!(self.width < isize::MAX as usize);
         x >= 0 && x < self.width as isize && y >= 0 && y < self.height as isize
     }
 
@@ -179,11 +219,13 @@ impl GridMeta {
     // }
 
     #[inline]
+    #[must_use]
     pub const fn i_to_xy(&self, i: usize) -> (usize, usize) {
         (i % self.width, i / self.width)
     }
 
     #[inline]
+    #[must_use]
     pub const fn xy_to_i(&self, x: usize, y: usize) -> usize {
         x + y * self.width
     }

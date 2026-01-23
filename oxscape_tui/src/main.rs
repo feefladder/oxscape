@@ -127,9 +127,9 @@ fn main() -> Result<()> {
                         match mode {
                             Mode::Full(sim) => {
                                 let min =
-                                    *sim.dem().par_iter().max_by(|a, b| b.total_cmp(*a)).unwrap();
+                                    *sim.dem().par_iter().max_by(|a, b| b.total_cmp(a)).unwrap();
                                 let max =
-                                    *sim.dem().par_iter().max_by(|a, b| a.total_cmp(*b)).unwrap();
+                                    *sim.dem().par_iter().max_by(|a, b| a.total_cmp(b)).unwrap();
                                 // move to tiled.
                                 let mut fill_sim = Tile::new(
                                     sim.dem().to_vec(),
@@ -145,7 +145,7 @@ fn main() -> Result<()> {
                                     .accum()
                                     .par_iter()
                                     .enumerate()
-                                    .max_by(|(_, a), (_, b)| a.total_cmp(*b))
+                                    .max_by(|(_, a), (_, b)| a.total_cmp(b))
                                     .map(|(idx, _)| idx)
                                     .unwrap();
                                 // first get tile index
@@ -177,7 +177,7 @@ fn main() -> Result<()> {
                                 let max_idx = flow_accumulation
                                     .par_iter()
                                     .enumerate()
-                                    .max_by(|(_, a), (_, b)| a.total_cmp(*b))
+                                    .max_by(|(_, a), (_, b)| a.total_cmp(b))
                                     .map(|(idx, _)| idx)
                                     .unwrap();
                                 let (max_x, max_y) = sim.meta().i_to_xy(max_idx);

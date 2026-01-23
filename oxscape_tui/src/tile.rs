@@ -1,6 +1,5 @@
 use color_eyre::{Result, eyre::Ok};
 use colorous::Gradient;
-use ordered_float::OrderedFloat;
 use oxscape::GridMeta;
 use oxscape_tile::{
     TLabel,
@@ -72,13 +71,13 @@ impl Simulation for TiledSim {
             // but for now, let's ignore any performance
             // also let's not store that data, but just have a bunch of for loops
             // we want to both mutate neighbouring tiles and look at the current tile...
-            let tile_labels = self.tiles()[tile_idx].labels.to_vec();
+            let tile_labels = self.tiles()[tile_idx].labels.clone();
             let tile_dem = self.tiles()[tile_idx].dem().to_vec();
             let tile_meta = self.tiles()[tile_idx].meta().clone();
             let (tile_x, tile_y) = self.meta.i_to_xy(tile_idx);
             // left edge
-            if let Some(left_tile_idx) = self.meta.try_shift(tile_x, tile_y, 0) {
-                if !self.finished[left_tile_idx] {
+            if let Some(left_tile_idx) = self.meta.try_shift(tile_x, tile_y, 0)
+                && !self.finished[left_tile_idx] {
                     let idxs;
                     {
                         let left_tile = &self.tiles()[left_tile_idx];
@@ -101,10 +100,9 @@ impl Simulation for TiledSim {
                         self.tiles[left_tile_idx].seed_slope(&idxs);
                     }
                 }
-            }
             // top edge
-            if let Some(top_tile_idx) = self.meta.try_shift(tile_x, tile_y, 2) {
-                if !self.finished[top_tile_idx] {
+            if let Some(top_tile_idx) = self.meta.try_shift(tile_x, tile_y, 2)
+                && !self.finished[top_tile_idx] {
                     let idxs;
                     {
                         let top_tile = &self.tiles()[top_tile_idx];
@@ -127,10 +125,9 @@ impl Simulation for TiledSim {
                         self.tiles[top_tile_idx].seed_slope(&idxs);
                     }
                 }
-            }
             // right edge
-            if let Some(right_tile_idx) = self.meta.try_shift(tile_x, tile_y, 4) {
-                if !self.finished[right_tile_idx] {
+            if let Some(right_tile_idx) = self.meta.try_shift(tile_x, tile_y, 4)
+                && !self.finished[right_tile_idx] {
                     let idxs;
                     {
                         let right_tile = &self.tiles()[right_tile_idx];
@@ -155,10 +152,9 @@ impl Simulation for TiledSim {
                         self.tiles[right_tile_idx].seed_slope(&idxs);
                     }
                 }
-            }
             // bottom edge
-            if let Some(bot_tile_idx) = self.meta.try_shift(tile_x, tile_y, 6) {
-                if !self.finished[bot_tile_idx] {
+            if let Some(bot_tile_idx) = self.meta.try_shift(tile_x, tile_y, 6)
+                && !self.finished[bot_tile_idx] {
                     let idxs;
                     {
                         let bot_tile = &self.tiles()[bot_tile_idx];
@@ -259,7 +255,7 @@ impl Simulation for TiledSim {
         //             }
         //         }
         //     }
-        }
+        // }
         Ok(())
     }
 }
@@ -287,9 +283,11 @@ impl WidgetRef for TiledSim {
 }
 
 impl TiledSim {
+    #[must_use] 
     pub fn tiles(&self) -> &[Tile] {
         &self.tiles
     }
+    #[must_use] 
     pub fn meta(&self) -> &GridMeta {
         &self.meta
     }
@@ -300,6 +298,7 @@ impl TiledSim {
         tile.add_edge();
         tile.seed_slope(&[tile.meta.xy_to_i(x % self.tile_size, y % self.tile_size)]);
     }
+    #[must_use] 
     pub fn tile_dem(
         dem: &[f64],
         meta: &GridMeta,
@@ -309,8 +308,8 @@ impl TiledSim {
     ) -> Self {
         let tiles_across = meta.width().div_ceil(tile_size);
         let tiles_down = meta.height().div_ceil(tile_size);
-        let max = *dem.par_iter().max_by(|a, b| a.total_cmp(*b)).unwrap();
-        let min = *dem.par_iter().max_by(|a, b| b.total_cmp(*a)).unwrap();
+        let max = *dem.par_iter().max_by(|a, b| a.total_cmp(b)).unwrap();
+        let min = *dem.par_iter().max_by(|a, b| b.total_cmp(a)).unwrap();
         let super_meta = GridMeta::new(tiles_across, tiles_down);
         let mut res = Self {
             tiles: Vec::with_capacity(super_meta.size()),
@@ -355,6 +354,7 @@ pub struct Tile {
 }
 
 impl Tile {
+    #[must_use] 
     pub fn new(
         dem: Vec<f64>,
         start_label: TLabel,
@@ -388,9 +388,11 @@ impl Tile {
         self.fillstate
             .step(&self.meta, &mut self.dem, &mut self.labels)
     }
+    #[must_use] 
     pub fn dem(&self) -> &[f64] {
         &self.dem
     }
+    #[must_use] 
     pub fn meta(&self) -> &GridMeta {
         &self.meta
     }

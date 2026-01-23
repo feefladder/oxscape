@@ -5,19 +5,21 @@ pub mod metrics;
 
 use rayon::prelude::*;
 
-use crate::{GridMeta, NOT_A_DONOR, XSHIFT, YSHIFT};
+use crate::{GridMeta, NOT_A_DONOR};
 
+#[allow(clippy::cast_possible_truncation)] // cast 0..8 to u8
 pub fn compute_donors_mflow(meta: &GridMeta, flows: &[[f64; 8]], donor: &mut [[usize; 8]]) {
     donor.fill([NOT_A_DONOR; 8]);
     donor.par_iter_mut().enumerate().for_each(|(i, don)| {
         let (x, y) = meta.i_to_xy(i);
-        for n in 0..8 {
-            if !meta.in_grid(x as isize + XSHIFT[n], y as isize + YSHIFT[n]) {
+        for (dir, the_don) in don.iter_mut().enumerate().take(8) {
+            let Some(i_rec) = meta.try_shift(x, y, dir as u8) else {
                 continue;
-            }
-            let i_rec = meta.shift(i, n.try_into().unwrap());
-            if flows[i_rec][GridMeta::rev(n)] != NO_FLOW_GEN {
-                don[n] = i_rec;
+            };
+            // SAFETY: this is an invariant on which LevelAccessors access data
+            // - `&arr[donors[dir]]` when `donors[dir]!=NOT_A_DONOR` is sound
+            if flows[i_rec][GridMeta::rev(dir)] != NO_FLOW_GEN {
+                *the_don = i_rec;
             }
         }
     });
@@ -60,7 +62,7 @@ pub fn generate_order_mflow(
             let c = stack[si];
             // load donating cells of focal cell into the stack
             for k in 0..8 {
-                let n = donor[c][k as usize];
+                let n = donor[c][k];
                 if n == NOT_A_DONOR {
                     continue;
                 }
