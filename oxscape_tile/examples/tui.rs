@@ -12,8 +12,7 @@ use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{self, Event, KeyCode};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Color::Rgb;
-use ratatui::widgets::{Block, WidgetRef};
-use rayon::prelude::*;
+use ratatui::widgets::WidgetRef;
 
 struct Tile<'a> {
     dem: Vec<f64>,

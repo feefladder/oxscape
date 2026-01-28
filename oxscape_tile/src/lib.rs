@@ -5,8 +5,8 @@ use std::{
     collections::{BinaryHeap, VecDeque},
 };
 
-pub mod fill;
 pub mod consumer;
+pub mod fill;
 pub mod producer;
 pub mod tile;
 pub type TLabel = u32;
@@ -123,7 +123,7 @@ impl<T: FloatCore> TileFillState<'_, T> {
                 };
                 let n_label = self.labels[n];
                 if n_label != 0 {
-                    // when two catchments collide...
+                    // TODO: when two catchments collide...
                 } else {
                     // add
                     if self.dem[n] >= r.z {

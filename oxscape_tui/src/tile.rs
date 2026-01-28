@@ -44,9 +44,7 @@ impl Simulation for TiledSim {
         // but the roi part messes things up a bit...
         // ah! we can just initialize the tile queue as a full queue for the non-searching version
         let level_finished = self.tile_queue.iter().all(|idx| !self.tiles[*idx].step());
-        if level_finished {
-            
-        }
+        if level_finished {}
         for tile_idx in self
             .finished
             .iter()
@@ -58,7 +56,7 @@ impl Simulation for TiledSim {
             // self.finished[tile_idx] = false;
 
             // self.playing[tile_idx] = false;
-            
+
             // so now we have to initialize neighbouring tiles....
             // I always wanted a u8 bitmask
             //  2  4  8
@@ -77,109 +75,111 @@ impl Simulation for TiledSim {
             let (tile_x, tile_y) = self.meta.i_to_xy(tile_idx);
             // left edge
             if let Some(left_tile_idx) = self.meta.try_shift(tile_x, tile_y, 0)
-                && !self.finished[left_tile_idx] {
-                    let idxs;
-                    {
-                        let left_tile = &self.tiles()[left_tile_idx];
-                        idxs = (0..tile_meta.height())
-                            .filter(|y| {
-                                if tile_labels[tile_meta.xy_to_i(0, *y)] & ROI_FLAG == ROI_FLAG {
-                                    left_tile.dem()
-                                        [left_tile.meta().xy_to_i(left_tile.meta().width() - 1, *y)]
-                                        > tile_dem[tile_meta.xy_to_i(0, *y)]
-                                } else {
-                                    false
-                                }
-                            })
-                            .map(|y| left_tile.meta().xy_to_i(left_tile.meta().width() - 1, y))
-                            .collect::<Vec<_>>();
-                    }
-                    if !idxs.is_empty() {
-                        // self.playing[left_tile_idx] = true;
-                        self.tiles[left_tile_idx].add_edge();
-                        self.tiles[left_tile_idx].seed_slope(&idxs);
-                    }
+                && !self.finished[left_tile_idx]
+            {
+                let idxs;
+                {
+                    let left_tile = &self.tiles()[left_tile_idx];
+                    idxs = (0..tile_meta.height())
+                        .filter(|y| {
+                            if tile_labels[tile_meta.xy_to_i(0, *y)] & ROI_FLAG == ROI_FLAG {
+                                left_tile.dem()
+                                    [left_tile.meta().xy_to_i(left_tile.meta().width() - 1, *y)]
+                                    > tile_dem[tile_meta.xy_to_i(0, *y)]
+                            } else {
+                                false
+                            }
+                        })
+                        .map(|y| left_tile.meta().xy_to_i(left_tile.meta().width() - 1, y))
+                        .collect::<Vec<_>>();
                 }
-            // top edge
-            if let Some(top_tile_idx) = self.meta.try_shift(tile_x, tile_y, 2)
-                && !self.finished[top_tile_idx] {
-                    let idxs;
-                    {
-                        let top_tile = &self.tiles()[top_tile_idx];
-                        idxs = (0..tile_meta.width())
-                            .filter(|x| {
-                                if tile_labels[tile_meta.xy_to_i(*x, 0)] & ROI_FLAG == ROI_FLAG {
-                                    top_tile.dem()
-                                        [top_tile.meta().xy_to_i(*x, top_tile.meta().height() - 1)]
-                                        > tile_dem[tile_meta.xy_to_i(*x, 0)]
-                                } else {
-                                    false
-                                }
-                            })
-                            .map(|x| top_tile.meta().xy_to_i(x, top_tile.meta().height() - 1))
-                            .collect::<Vec<_>>();
-                    }
-                    if !idxs.is_empty() {
-                        // self.playing[top_tile_idx] = true;
-                        self.tiles[top_tile_idx].add_edge();
-                        self.tiles[top_tile_idx].seed_slope(&idxs);
-                    }
-                }
-            // right edge
-            if let Some(right_tile_idx) = self.meta.try_shift(tile_x, tile_y, 4)
-                && !self.finished[right_tile_idx] {
-                    let idxs;
-                    {
-                        let right_tile = &self.tiles()[right_tile_idx];
-                        idxs = (0..tile_meta.height())
-                            .filter(|y| {
-                                if tile_labels[tile_meta.xy_to_i(tile_meta.width() - 1, *y)]
-                                    & ROI_FLAG
-                                    == ROI_FLAG
-                                {
-                                    right_tile.dem()[right_tile.meta().xy_to_i(0, *y)]
-                                        > tile_dem[tile_meta.xy_to_i(tile_meta.width() - 1, *y)]
-                                } else {
-                                    false
-                                }
-                            })
-                            .map(|y| right_tile.meta().xy_to_i(0, y))
-                            .collect::<Vec<_>>();
-                    }
-                    if !idxs.is_empty() {
-                        // self.playing[right_tile_idx] = true;
-                        self.tiles[right_tile_idx].add_edge();
-                        self.tiles[right_tile_idx].seed_slope(&idxs);
-                    }
-                }
-            // bottom edge
-            if let Some(bot_tile_idx) = self.meta.try_shift(tile_x, tile_y, 6)
-                && !self.finished[bot_tile_idx] {
-                    let idxs;
-                    {
-                        let bot_tile = &self.tiles()[bot_tile_idx];
-                        idxs = (0..tile_meta.width())
-                            .filter(|x| {
-                                if tile_labels[tile_meta.xy_to_i(*x, tile_meta.height() - 1)]
-                                    & ROI_FLAG
-                                    == ROI_FLAG
-                                {
-                                    bot_tile.dem()[bot_tile.meta().xy_to_i(*x, 0)]
-                                        > tile_dem[tile_meta.xy_to_i(*x, tile_meta.height() - 1)]
-                                } else {
-                                    false
-                                }
-                            })
-                            .map(|x| bot_tile.meta().xy_to_i(x, 0))
-                            .collect::<Vec<_>>();
-                    }
-                    if !idxs.is_empty() {
-                        // self.playing[bot_tile_idx] = true;
-                        self.tiles[bot_tile_idx].add_edge();
-                        self.tiles[bot_tile_idx].seed_slope(&idxs);
-                    }
+                if !idxs.is_empty() {
+                    // self.playing[left_tile_idx] = true;
+                    self.tiles[left_tile_idx].add_edge();
+                    self.tiles[left_tile_idx].seed_slope(&idxs);
                 }
             }
+            // top edge
+            if let Some(top_tile_idx) = self.meta.try_shift(tile_x, tile_y, 2)
+                && !self.finished[top_tile_idx]
+            {
+                let idxs;
+                {
+                    let top_tile = &self.tiles()[top_tile_idx];
+                    idxs = (0..tile_meta.width())
+                        .filter(|x| {
+                            if tile_labels[tile_meta.xy_to_i(*x, 0)] & ROI_FLAG == ROI_FLAG {
+                                top_tile.dem()
+                                    [top_tile.meta().xy_to_i(*x, top_tile.meta().height() - 1)]
+                                    > tile_dem[tile_meta.xy_to_i(*x, 0)]
+                            } else {
+                                false
+                            }
+                        })
+                        .map(|x| top_tile.meta().xy_to_i(x, top_tile.meta().height() - 1))
+                        .collect::<Vec<_>>();
+                }
+                if !idxs.is_empty() {
+                    // self.playing[top_tile_idx] = true;
+                    self.tiles[top_tile_idx].add_edge();
+                    self.tiles[top_tile_idx].seed_slope(&idxs);
+                }
+            }
+            // right edge
+            if let Some(right_tile_idx) = self.meta.try_shift(tile_x, tile_y, 4)
+                && !self.finished[right_tile_idx]
+            {
+                let idxs;
+                {
+                    let right_tile = &self.tiles()[right_tile_idx];
+                    idxs = (0..tile_meta.height())
+                        .filter(|y| {
+                            if tile_labels[tile_meta.xy_to_i(tile_meta.width() - 1, *y)] & ROI_FLAG
+                                == ROI_FLAG
+                            {
+                                right_tile.dem()[right_tile.meta().xy_to_i(0, *y)]
+                                    > tile_dem[tile_meta.xy_to_i(tile_meta.width() - 1, *y)]
+                            } else {
+                                false
+                            }
+                        })
+                        .map(|y| right_tile.meta().xy_to_i(0, y))
+                        .collect::<Vec<_>>();
+                }
+                if !idxs.is_empty() {
+                    // self.playing[right_tile_idx] = true;
+                    self.tiles[right_tile_idx].add_edge();
+                    self.tiles[right_tile_idx].seed_slope(&idxs);
+                }
+            }
+            // bottom edge
+            if let Some(bot_tile_idx) = self.meta.try_shift(tile_x, tile_y, 6)
+                && !self.finished[bot_tile_idx]
+            {
+                let idxs;
+                {
+                    let bot_tile = &self.tiles()[bot_tile_idx];
+                    idxs = (0..tile_meta.width())
+                        .filter(|x| {
+                            if tile_labels[tile_meta.xy_to_i(*x, tile_meta.height() - 1)] & ROI_FLAG
+                                == ROI_FLAG
+                            {
+                                bot_tile.dem()[bot_tile.meta().xy_to_i(*x, 0)]
+                                    > tile_dem[tile_meta.xy_to_i(*x, tile_meta.height() - 1)]
+                            } else {
+                                false
+                            }
+                        })
+                        .map(|x| bot_tile.meta().xy_to_i(x, 0))
+                        .collect::<Vec<_>>();
+                }
+                if !idxs.is_empty() {
+                    // self.playing[bot_tile_idx] = true;
+                    self.tiles[bot_tile_idx].add_edge();
+                    self.tiles[bot_tile_idx].seed_slope(&idxs);
+                }
+            }
+        }
         //     // top-left corner
         //     if let Some(tl_tile_idx) = self.meta.try_shift(tile_x, tile_y, 1) {
         //         if !self.finished[tl_tile_idx] {
@@ -283,11 +283,11 @@ impl WidgetRef for TiledSim {
 }
 
 impl TiledSim {
-    #[must_use] 
+    #[must_use]
     pub fn tiles(&self) -> &[Tile] {
         &self.tiles
     }
-    #[must_use] 
+    #[must_use]
     pub fn meta(&self) -> &GridMeta {
         &self.meta
     }
@@ -298,7 +298,7 @@ impl TiledSim {
         tile.add_edge();
         tile.seed_slope(&[tile.meta.xy_to_i(x % self.tile_size, y % self.tile_size)]);
     }
-    #[must_use] 
+    #[must_use]
     pub fn tile_dem(
         dem: &[f64],
         meta: &GridMeta,
@@ -315,7 +315,7 @@ impl TiledSim {
             tiles: Vec::with_capacity(super_meta.size()),
             tile_size,
             tile_queue: Vec::new(),
-            finished: vec![false;super_meta.size()],
+            finished: vec![false; super_meta.size()],
             meta: super_meta,
         };
         for tile_idx in 0..res.meta.size() {
@@ -354,7 +354,7 @@ pub struct Tile {
 }
 
 impl Tile {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         dem: Vec<f64>,
         start_label: TLabel,
@@ -388,11 +388,11 @@ impl Tile {
         self.fillstate
             .step(&self.meta, &mut self.dem, &mut self.labels)
     }
-    #[must_use] 
+    #[must_use]
     pub fn dem(&self) -> &[f64] {
         &self.dem
     }
-    #[must_use] 
+    #[must_use]
     pub fn meta(&self) -> &GridMeta {
         &self.meta
     }

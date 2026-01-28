@@ -16,7 +16,7 @@ pub const ROI_FLAG: TLabel = 1 << (std::mem::size_of::<TLabel>() * 8 - 1);
 pub type Graph<T> = Vec<HashMap<TLabel, T>>;
 
 /// Provides the `next_up()` function on floats
-/// 
+///
 /// Float trait doesn't provide the next_up() function needed for epsilon depression filling, so
 /// there's this trait..
 pub trait NextUp {
@@ -186,7 +186,7 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
             let n = meta.xy_to_i(c.x, c.y);
             // assign a label if we don't already have one
             if labels[n] == 0 {
-                let neighbour = false;
+                let mut neighbour = false;
                 // otherwise, we can take a label from a neighbouring lower cell
                 for dir in 0..8 {
                     let Some(nn) = meta.try_shift(c.x, c.y, dir) else {

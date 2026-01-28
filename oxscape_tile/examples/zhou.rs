@@ -94,8 +94,8 @@ fn dem() -> (GridMeta, [f64; 35]) {
 fn main() -> Result<()> {
     let mut t = ratatui::init();
 
-    let (meta, mut dem) = dem();
-    let mut labels = vec![0; dem.len()];
+    let (meta, dem) = dem();
+    let labels = vec![0; dem.len()];
     let min = dem.map(|v| OrderedFloat(v)).iter().min().unwrap().0;
     let max = dem.map(|v| OrderedFloat(v)).iter().max().unwrap().0;
     let mut tile = Tile {

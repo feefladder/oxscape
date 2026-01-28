@@ -26,22 +26,22 @@ pub struct DefaultSim {
 }
 
 impl DefaultSim {
-    #[must_use] 
+    #[must_use]
     pub fn dem(&self) -> &[f64] {
         &self.dem
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn accum(&self) -> &[f64] {
         &self.accum
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn order(&self) -> &Order {
         &self.order
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn meta(&self) -> &GridMeta {
         self.order.meta()
     }

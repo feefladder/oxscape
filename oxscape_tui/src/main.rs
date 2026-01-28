@@ -27,7 +27,7 @@ enum Mode {
         unseeded_sim: Tile,
         flow_accumulation: Vec<f64>,
     },
-    Tiled{
+    Tiled {
         tiled_sim: TiledSim,
         flow_accumulation: Vec<f64>,
     },
@@ -37,13 +37,14 @@ impl Mode {
     fn step(&mut self) -> Result<()> {
         match self {
             Mode::Full(sim) => sim.step(),
-            Mode::Fill { sim, unseeded_sim,.. } => {
+            Mode::Fill {
+                sim, unseeded_sim, ..
+            } => {
                 sim.step();
                 unseeded_sim.step();
                 Ok(())
             }
-            Mode::Tiled{
-                tiled_sim,..} => tiled_sim.step(),
+            Mode::Tiled { tiled_sim, .. } => tiled_sim.step(),
         }
     }
 }
@@ -52,27 +53,36 @@ impl WidgetRef for Mode {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         match self {
             Mode::Full(sim) => sim.render_ref(area, buf),
-            Mode::Fill { sim, unseeded_sim,flow_accumulation } => {
+            Mode::Fill {
+                sim,
+                unseeded_sim,
+                flow_accumulation,
+            } => {
                 assert_eq!(sim.meta().size(), unseeded_sim.meta().size());
                 // let min_acc = flow_accumulation.par_iter().min_by(|a,b| a.total_cmp(*b)).unwrap();
-                let max_acc = flow_accumulation.par_iter().max_by(|a,b| a.total_cmp(*b)).unwrap();
+                let max_acc = flow_accumulation
+                    .par_iter()
+                    .max_by(|a, b| a.total_cmp(*b))
+                    .unwrap();
                 for i in 0..sim.meta().size() {
-                    let (x,y) = sim.meta().i_to_xy(i);
-                    let tx = u16::try_from(x*2).unwrap() + area.left();
+                    let (x, y) = sim.meta().i_to_xy(i);
+                    let tx = u16::try_from(x * 2).unwrap() + area.left();
                     let ty = u16::try_from(y).unwrap() + area.top();
                     if sim.labels()[i] != unseeded_sim.labels()[i] {
-                        let c = colorous::PAIRED[unseeded_sim.labels()[i] as usize%12];
-                        buf[(tx,ty)].set_bg(Color::Rgb(c.r,c.g,c.b));
-                        let c = colorous::MAGMA.eval_continuous(flow_accumulation[i].sqrt()/max_acc.sqrt());
-                        buf[(tx+1,ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
+                        let c = colorous::PAIRED[unseeded_sim.labels()[i] as usize % 12];
+                        buf[(tx, ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
+                        let c = colorous::MAGMA
+                            .eval_continuous(flow_accumulation[i].sqrt() / max_acc.sqrt());
+                        buf[(tx + 1, ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
                     } else {
-                        let c = colorous::MAGMA.eval_continuous(flow_accumulation[i].sqrt()/max_acc.sqrt());
-                        buf[(tx,ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
-                        buf[(tx+1,ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
+                        let c = colorous::MAGMA
+                            .eval_continuous(flow_accumulation[i].sqrt() / max_acc.sqrt());
+                        buf[(tx, ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
+                        buf[(tx + 1, ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
                     }
                 }
-            },
-            Mode::Tiled{tiled_sim,..} => tiled_sim.render_ref(area, buf),
+            }
+            Mode::Tiled { tiled_sim, .. } => tiled_sim.render_ref(area, buf),
         }
     }
 }
@@ -114,10 +124,12 @@ fn main() -> Result<()> {
                             sim.restart()?;
                             start_frame = terminal.get_frame().count();
                         }
-                        Mode::Fill { sim, unseeded_sim,.. } => {
+                        Mode::Fill {
+                            sim, unseeded_sim, ..
+                        } => {
                             while sim.step() {}
                             while unseeded_sim.step() {}
-                        },
+                        }
                         _ => todo!(),
                     },
                     KeyCode::Right => mode.step()?,
@@ -171,7 +183,7 @@ fn main() -> Result<()> {
                                     sim.meta(),
                                     usize::from(tile_size),
                                     2,
-                                    &[colorous::CUBEHELIX],// colorous::INFERNO, colorous::VIRIDIS],
+                                    &[colorous::CUBEHELIX], // colorous::INFERNO, colorous::VIRIDIS],
                                 );
                                 // seed with max accumulation
                                 let max_idx = flow_accumulation
@@ -183,11 +195,16 @@ fn main() -> Result<()> {
                                 let (max_x, max_y) = sim.meta().i_to_xy(max_idx);
                                 // first get tile index
                                 tsim.seed_slope(max_x, max_y);
-                                mode = Mode::Tiled{tiled_sim: tsim, flow_accumulation};
+                                mode = Mode::Tiled {
+                                    tiled_sim: tsim,
+                                    flow_accumulation,
+                                };
                                 // tiled animation is slow, so we want to play it
                                 play = false;
                             }
-                            Mode::Tiled{tiled_sim: ref t, ..} => {
+                            Mode::Tiled {
+                                tiled_sim: ref t, ..
+                            } => {
                                 // move from tiled to normal
                                 let ts = usize::from(tile_size);
                                 let meta_full =
