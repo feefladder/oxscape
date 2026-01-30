@@ -1,6 +1,5 @@
 //! visualization of the worked example in the Zhou paper.
 //!
-use std::collections::{BinaryHeap, VecDeque};
 use std::time::Duration;
 
 use color_eyre::eyre::Result;
@@ -27,7 +26,7 @@ struct Tile {
 impl Tile {
     pub fn step(&mut self) {
         self.fillstate
-            .step(&self.meta, &mut self.dem, &mut self.labels);
+            .step(&self.meta, &mut self.dem, &mut self.labels, |_,_|{});
     }
 }
 

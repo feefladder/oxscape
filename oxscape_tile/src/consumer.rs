@@ -2,47 +2,69 @@
 //!
 
 // use std::collections::HashMap;
-// use std::ops::{Index,IndexMut};
+use std::ops::{Index,IndexMut};
 
-// use oxscape::GridMeta;
+use oxscape::GridMeta;
 
 // use crate::TLabel;
 
-// /// A unified way to work with different underlying data structures as if they are normal arrays
-// ///
-// /// - `index[(x,y)]`
-// /// - `try_shift((x,y), dir)`
-// pub trait Array2D<T>: Index<(usize,usize), Output = T> + IndexMut<(usize,usize)> {
-//     /// Get a neighbour index `(x,y)` or `None` if out-of-bounds
-//     ///
-//     fn try_shift(&self, x: usize, y: usize, dir: u8) -> Option<(usize,usize)>;
-// }
+/// A unified way to work with different underlying data structures as if they are normal arrays
+///
+/// - `index[(x,y)]`
+/// 
+/// not sure if these should be trait members:
+/// - `try_shift((x,y), dir)`
+/// - `xy_to_i(x,y)->i`
+/// or we should just add a meta function:
+/// - `.meta().try_shift((x,y),dir)`
+pub trait Array2D<T>: Index<(usize,usize), Output = T> + IndexMut<(usize,usize)> {
+    /// Get a neighbour index `(x,y)` or `None` if out-of-bounds
+    ///
+    fn try_shift(&self, x: usize, y: usize, dir: u8) -> Option<(usize,usize)>;
 
-// /// The simplest wrapper for some raw data and its corresponding GridMeta
-// #[derive(Debug)]
-// struct BorrowedArray2D<'a, T> {
-//     data: &'a mut [T],
-//     meta: &'a GridMeta
-// }
+    fn xy_to_i(&self, x: usize, y: usize) -> usize;
+    fn i_to_xy(&self, i: usize) -> (usize,usize);
+}
 
-// impl<T> Index<(usize, usize)> for BorrowedArray2D<'_, T> {
-//     type Output = T;
-//      fn index(&self, index: (usize, usize)) -> &Self::Output {
-//          &self.data[self.meta.xy_to_i(index.0, index.1)]
-//      }
-// }
+/// The simplest wrapper for some raw data and its corresponding GridMeta
+#[derive(Debug)]
+pub struct BorrowedArray2D<'a, T> {
+    data: &'a mut [T],
+    meta: &'a GridMeta
+}
 
-// impl<T> IndexMut<(usize,usize)> for BorrowedArray2D<'_, T> {
-//     fn index_mut(&mut self, index: (usize,usize)) -> &mut Self::Output {
-//         &mut self.data[self.meta.xy_to_i(index.0, index.1)]
-//     }
-// }
+impl<'a, T> BorrowedArray2D<'a, T> {
+    pub fn new(meta: &'a GridMeta, data: &'a mut[T]) -> Self {
+        Self { data, meta }
+    }
+}
 
-// impl<T> Array2D<T> for BorrowedArray2D<'_, T> {
-//     fn try_shift(&self, x: usize, y: usize, dir: u8) -> Option<(usize,usize)> {
-//         self.meta.try_shift(x, y, dir).map(|idx| self.meta.i_to_xy(idx))
-//     }
-// }
+impl<T> Index<(usize, usize)> for BorrowedArray2D<'_, T> {
+    type Output = T;
+     fn index(&self, index: (usize, usize)) -> &Self::Output {
+         &self.data[self.meta.xy_to_i(index.0, index.1)]
+     }
+}
+
+impl<T> IndexMut<(usize,usize)> for BorrowedArray2D<'_, T> {
+    fn index_mut(&mut self, index: (usize,usize)) -> &mut Self::Output {
+        &mut self.data[self.meta.xy_to_i(index.0, index.1)]
+    }
+}
+
+impl<T> Array2D<T> for BorrowedArray2D<'_, T> {
+    fn try_shift(&self, x: usize, y: usize, dir: u8) -> Option<(usize,usize)> {
+        self.meta.try_shift(x, y, dir).map(|idx| self.meta.i_to_xy(idx))
+    }
+
+    fn i_to_xy(&self, i: usize) -> (usize,usize) {
+        self.meta.i_to_xy(i)
+    }
+
+    fn xy_to_i(&self, x: usize, y: usize) -> usize {
+        self.meta.xy_to_i(x, y)
+    }
+}
 
 // // Mock Job1 structure
 // #[derive(Clone)]
