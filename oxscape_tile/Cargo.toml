@@ -9,6 +9,8 @@ repository.workspace = true
 
 [dependencies]
 async-channel = "2.5.0"
+async-trait = "0.1.89"
+num-traits = "0.2.19"
 ordered-float = "5.1.0"
 oxscape = {version = "0.1", path = "../oxscape"}
 rayon = "1.11.0"

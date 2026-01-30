@@ -4,14 +4,14 @@
 use std::collections::HashMap;
 
 use async_channel::{Receiver, Sender};
-use ordered_float::{Float, FloatCore};
+use ordered_float::{FloatCore};
 use oxscape::GridMeta;
 
 use crate::{TLabel, fill::NextUp, tile::TileInfo};
 
 pub type SpillGraph<T> = Vec<HashMap<TLabel, T>>;
-pub type TileGrid = HashMap<(u64, u64), TileInfo>;
-pub type Job1Grid<T> = HashMap<(u64, u64), SpillGraph<T>>;
+pub type TileGrid = HashMap<(usize, usize), TileInfo>;
+pub type Job1Grid<T> = HashMap<(usize, usize), SpillGraph<T>>;
 pub type Job2Grid<T> = HashMap<TileInfo, Vec<T>>;
 
 pub struct Producer<T: FloatCore + NextUp> {

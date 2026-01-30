@@ -1,9 +1,8 @@
 use ordered_float::{FloatCore, OrderedFloat};
 use oxscape::GridMeta;
-use std::{
-    cmp::Ordering,
-};
+use std::cmp::Ordering;
 
+pub mod array_2d;
 pub mod consumer;
 pub mod fill;
 pub mod producer;

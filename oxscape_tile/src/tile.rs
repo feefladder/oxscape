@@ -1,14 +1,14 @@
 use oxscape::GridMeta;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TileInfo {
     filename: String,
     /// x-coordinate of the tile in the grid
     // TODO: is u32 ok here? should it be usize?
     // COGs don't really have a limit on the number of tiles as I currently understand, just that ImageWidth = u64 and n_tiles
-    tile_x: u64,
+    tile_x: usize,
     /// y-coordinate of the tile in the grid
-    tile_y: u64,
+    tile_y: usize,
     /// Tile's x-offset within the larger grid
     x_offset: usize,
     /// Tile's y offset within the larger grid
@@ -21,16 +21,21 @@ pub struct TileInfo {
 }
 
 impl TileInfo {
-    pub fn xy(&self) -> (u64, u64) {
+    pub fn xy(&self) -> (usize, usize) {
         (self.tile_x, self.tile_y)
+    }
+
+    pub fn meta(&self) -> &GridMeta {
+        &self.meta
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum RetentionStrategy {
     /// Don't store any intermediate results: re-calculate them every step
     Evict,
     /// Store intermediate results in a cache
+    #[default]
     Cache,
     /// Keep intermediate results in memory
     Retain,

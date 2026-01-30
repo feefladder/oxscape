@@ -21,7 +21,7 @@ pub const YSHIFT: [isize; 8] = [0, -1, -1, -1, 0, 1, 1, 1];
 
 pub const DR: [f64; 8] = [1.0, SQRT_2, 1.0, SQRT_2, 1.0, SQRT_2, 1.0, SQRT_2];
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct GridMeta {
     width: usize,
     height: usize,

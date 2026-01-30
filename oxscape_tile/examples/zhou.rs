@@ -26,7 +26,7 @@ struct Tile {
 impl Tile {
     pub fn step(&mut self) {
         self.fillstate
-            .step(&self.meta, &mut self.dem, &mut self.labels, |_,_|{});
+            .step(&self.meta, &mut self.dem, &mut self.labels, |_, _| {});
     }
 }
 

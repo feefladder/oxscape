@@ -485,8 +485,8 @@ mod test {
 
     #[test]
     #[ignore = "Hour long test"]
-    fn test_generate_order_exhausive() {
-        // cargo test --release -- order_d8::test::test_generate_order_exhausive --ignored --nocapture
+    fn test_generate_order_exhaustive() {
+        // cargo test --release -- order_d8::test::test_generate_order_exhaustive --ignored --nocapture
         // silence panic output
         let default_hook = panic::take_hook();
         panic::set_hook(Box::new(|_| {}));

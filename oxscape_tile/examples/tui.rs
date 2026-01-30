@@ -181,7 +181,8 @@ fn main() -> Result<()> {
                     KeyCode::Enter => {}
                     KeyCode::Right => {
                         grid.tiles.iter_mut().for_each(|s| {
-                            s.fillstate.step(&s.meta, &mut s.dem, &mut s.labels, |_,_|{});
+                            s.fillstate
+                                .step(&s.meta, &mut s.dem, &mut s.labels, |_, _| {});
                         });
                     }
                     KeyCode::Char(' ') => play = !play,
@@ -197,7 +198,10 @@ fn main() -> Result<()> {
             if !grid
                 .tiles
                 .iter_mut()
-                .map(|t| t.fillstate.step(&t.meta, &mut t.dem, &mut t.labels, |_,_|{}))
+                .map(|t| {
+                    t.fillstate
+                        .step(&t.meta, &mut t.dem, &mut t.labels, |_, _| {})
+                })
                 .all(|v| v)
             {
                 play = false;
