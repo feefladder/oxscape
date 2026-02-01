@@ -386,7 +386,7 @@ impl Tile {
 
     pub fn step(&mut self) -> bool {
         self.fillstate
-            .step(&self.meta, &mut self.dem, &mut self.labels,|_,_|{})
+            .step(&self.meta, &mut self.dem, &mut self.labels, |_, _| {})
     }
     #[must_use]
     pub fn dem(&self) -> &[f64] {

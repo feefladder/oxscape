@@ -105,7 +105,7 @@ impl WidgetRef for Grid {
     }
 }
 
-/// The dem from Barnes' paper
+/// The tiled dem from Barnes' paper
 const TILED: [[u32; 49]; 9] = [
     [
         9, 9, 7, 6, 7, 6, 4, 6, 7, 6, 5, 5, 4, 4, 3, 5, 5, 4, 3, 3, 3, 1, 3, 4, 4, 3, 2, 2, 5, 4,

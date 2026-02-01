@@ -1,6 +1,6 @@
 use oxscape::GridMeta;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct TileInfo {
     filename: String,
     /// x-coordinate of the tile in the grid
@@ -30,7 +30,7 @@ impl TileInfo {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum RetentionStrategy {
     /// Don't store any intermediate results: re-calculate them every step
     Evict,

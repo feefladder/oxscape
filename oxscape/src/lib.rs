@@ -21,7 +21,7 @@ pub const YSHIFT: [isize; 8] = [0, -1, -1, -1, 0, 1, 1, 1];
 
 pub const DR: [f64; 8] = [1.0, SQRT_2, 1.0, SQRT_2, 1.0, SQRT_2, 1.0, SQRT_2];
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct GridMeta {
     width: usize,
     height: usize,
@@ -194,6 +194,40 @@ impl GridMeta {
         self.is_edge_cell(x, y)
     }
 
+    /// Get an iterator returning the edge:
+    /// ```
+    /// 1 2 3
+    /// 0   4
+    /// 7 6 5
+    /// ```
+    #[rustfmt::skip]
+    pub fn edge<'a, T>(&'a self, data: &'a [T], dir: u8) -> EdgeIterator<'a, T> {
+        let width = self.width();
+        let end = self.size();
+        //  0, 1, 2, 3,
+        //  4, 5, 6, 7,
+        //  8, 9,10,11,
+        // 12,13,14,15
+        // 
+        match dir {
+            //                                   0..13=15-2
+            0 => EdgeIterator::new(&data[0..end - width + 2], width),
+            1 => EdgeIterator::new(&data[0..1], 1),
+            //                                   0..4
+            2 => EdgeIterator::new(&data[0..width], 1),
+            //                                    3..4
+            3 => EdgeIterator::new(&data[width - 1..width], 1),
+            //                                     3..16
+            4 => EdgeIterator::new(&data[width - 1..end], width),
+            5 => EdgeIterator::new(&data[end - 1..end], 1),
+            //                                    12=15-3..16
+            6 => EdgeIterator::new(&data[end - width..end], 1),
+            //                                      12=15-3..12=15-3
+            7 => EdgeIterator::new(&data[end - width..end - width + 1], 1),
+            _ => unreachable!(),
+        }
+    }
+
     /// Checks whether the given values fit in the grid
     ///
     /// # Panics
@@ -228,6 +262,35 @@ impl GridMeta {
     #[must_use]
     pub const fn xy_to_i(&self, x: usize, y: usize) -> usize {
         x + y * self.width
+    }
+}
+
+pub struct EdgeIterator<'a, T> {
+    data: &'a [T],
+    cursor: usize,
+    step: usize,
+}
+
+impl<'a, T> EdgeIterator<'a, T> {
+    pub fn new(data: &'a [T], step: usize) -> Self {
+        Self {
+            data,
+            cursor: 0,
+            step,
+        }
+    }
+}
+
+impl<'a, T> Iterator for EdgeIterator<'a, T> {
+    type Item = &'a T;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cursor < self.data.len() {
+            let res = Some(&self.data[self.cursor]);
+            self.cursor += self.step;
+            res
+        } else {
+            None
+        }
     }
 }
 
@@ -286,5 +349,25 @@ mod test {
         assert_eq!(m.height, 10);
         assert_eq!(m.size, 100);
         assert_eq!(m.nshift, [-1, -11, -10, -9, 1, 11, 10, 9]);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_edge() {
+        let arr = vec![
+             0, 1, 2, 3,
+             4, 5, 6, 7,
+             8, 9,10,11,
+            12,13,14,15
+        ];
+        let meta = GridMeta::new(4, 4);
+        assert_eq!(meta.edge(&arr, 0).map(|v|*v).collect::<Vec<_>>(), &[0,4,8,12]);
+        assert_eq!(meta.edge(&arr, 1).map(|v|*v).collect::<Vec<_>>(), &[0]);
+        assert_eq!(meta.edge(&arr, 2).map(|v|*v).collect::<Vec<_>>(), &[0,1,2,3]);
+        assert_eq!(meta.edge(&arr, 3).map(|v|*v).collect::<Vec<_>>(), &[3]);
+        assert_eq!(meta.edge(&arr, 4).map(|v|*v).collect::<Vec<_>>(), &[3,7,11,15]);
+        assert_eq!(meta.edge(&arr, 5).map(|v|*v).collect::<Vec<_>>(), &[15]);
+        assert_eq!(meta.edge(&arr, 6).map(|v|*v).collect::<Vec<_>>(), &[12,13,14,15]);
+        assert_eq!(meta.edge(&arr, 7).map(|v|*v).collect::<Vec<_>>(), &[12]);
     }
 }
