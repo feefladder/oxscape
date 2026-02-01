@@ -116,12 +116,6 @@ where
                             dem_edges.push(*z);
                         }
                     }
-                    let res = FillData {
-                        spill_graph,
-                        dem_edges,
-                        label_edges,
-                        label_offset: None,
-                    };
 
                     tile_server
                         .save_to_cache(tile_x, tile_y, "dem", cast_slice(&dem), info.meta())
@@ -129,8 +123,15 @@ where
                     tile_server
                         .save_to_cache(tile_x, tile_y, "labels", cast_slice(&labels), info.meta())
                         .await;
+                    let res = FillData {
+                        tile_info: info,
+                        spill_graph,
+                        dem_edges,
+                        label_edges,
+                        label_offset: None,
+                    };
                     // TODO: apparently we may also need like edge info, but idk why... ah yes for edge tiles that connect to watershed 1 I guess?
-                    tx.send(ConsumerMessage::InitialFillComplete(info, res))
+                    tx.send(ConsumerMessage::InitialFillComplete(res))
                         .await
                         .unwrap();
                 }
