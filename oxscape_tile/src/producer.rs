@@ -6,18 +6,57 @@ use std::collections::{BinaryHeap, HashMap};
 use std::fmt::Debug;
 
 use async_channel::{Receiver, Sender};
-use num_traits::Float;
 use num_traits::float::TotalOrder;
 use ordered_float::FloatCore;
 use oxscape::{GridMeta, XSHIFT, YSHIFT};
 
-use crate::array_2d::skirt_starts;
+use crate::fill::watersheds_meet;
 use crate::{TLabel, fill::NextUp, tile::TileInfo};
 
 pub type SpillGraph<T> = Vec<HashMap<TLabel, T>>;
-pub type TileGrid = HashMap<(usize, usize), TileInfo>;
-pub type FillGrid<T> = HashMap<(usize, usize), FillData<T>>;
+
+/// graph of spill elevations that also keeps track of which ranges map to which tiles
+pub struct SuperGraph<T> {
+    spill_graph: SpillGraph<T>,
+    offsets: HashMap<TileCoord, TLabel>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TileCoord {
+    pub x: usize,
+    pub y: usize,
+}
+
+// Ideally there'd be some logic to this
+pub type TileGrid = HashMap<TileCoord, TileInfo>;
 pub type RaiseGrid<T> = HashMap<TileInfo, Vec<T>>;
+
+pub struct FillGrid<T> {
+    grid: HashMap<TileCoord, FillData<T>>
+}
+
+impl<T> FillGrid<T> {
+    fn n_tiles(&self) -> usize {
+        self.grid.len()
+    }
+
+    fn edge(& self, coord: &TileCoord, dir: u8) -> Option<(&[TLabel],&[T])> {
+        if let Some(fill_data) = self.grid.get(coord) {
+        let range= fill_data.tile_info.meta().skirt_range(dir);
+         Some((&fill_data.label_edges[range.clone()], &fill_data.dem_edges[range]))
+        } else {None}
+    }
+
+    fn neighbour<'a>(&'a self, my_coord: TileCoord, dir: u8) -> Option<TileCoord> {
+        let n_coord = TileCoord {
+            x: usize::try_from(my_coord.x as isize+XSHIFT[dir as usize]).expect("TOOD: plz fix"),
+            y: usize::try_from(my_coord.y as isize+YSHIFT[dir as usize]).expect("TOOD: plz fix"),
+        };
+        if self.grid.contains_key(&n_coord) {
+            Some(n_coord)
+        } else {None}
+    }
+}
 
 #[derive(Debug)]
 pub struct FillData<T> {
@@ -25,8 +64,6 @@ pub struct FillData<T> {
     pub(crate) spill_graph: SpillGraph<T>,
     pub(crate) dem_edges: Vec<T>,
     pub(crate) label_edges: Vec<TLabel>,
-    /// Offset of the label into the supergraph
-    pub(crate) label_offset: Option<TLabel>, // GridMeta is in TileInfo struct....
 }
 
 pub struct Producer<T: FloatCore + NextUp> {
@@ -78,12 +115,14 @@ pub async fn producer<T: Debug + TotalOrder + Default + FloatCore>(
     }
 
     // get catchment connectivity information from consumers
-    let mut job1_grid = FillGrid::with_capacity(n_tiles);
+    let mut job1_grid = FillGrid{
+        grid: HashMap::with_capacity(n_tiles)
+    };
     for _ in 0..n_tiles {
         if let ConsumerMessage::InitialFillComplete(fill_data) =
             receiver.recv().await.expect("channel receive error")
         {
-            job1_grid.insert(fill_data.tile_info.xy(), fill_data);
+            job1_grid.grid.insert(fill_data.tile_info.xy(), fill_data);
         } else {
             unreachable!(
                 "At this point no other messages have been sent that way, so none should be returned this way"
@@ -124,8 +163,7 @@ pub async fn producer<T: Debug + TotalOrder + Default + FloatCore>(
     }
 }
 
-/// This takes the job grid, which I guess should be like ordered for
-/// deterministic results. However, I don't know if that's really necessary
+/// create a supergraph from tiles' graphs and edge data
 ///
 /// basically this transformation:
 /// ```raw
@@ -135,13 +173,12 @@ pub async fn producer<T: Debug + TotalOrder + Default + FloatCore>(
 ///
 /// and connecting edges between tiles (with edge info)
 ///
-fn build_supergraph<T: Copy + FloatCore>(
-    fill_grid: &mut FillGrid<T>,
-) -> SpillGraph<T> {
-    let total_size: usize = fill_grid.iter().map(|(_, v)| v.spill_graph.len()).sum();
+fn build_supergraph<T: Copy + FloatCore>(fill_grid: &FillGrid<T>) -> SuperGraph<T> {
+    let total_size: usize = fill_grid.grid.iter().map(|(_, v)| v.spill_graph.len()).sum();
     let mut supergraph: SpillGraph<T> = vec![HashMap::new(); 1 + total_size];
+    let mut idx_offsets = HashMap::with_capacity(fill_grid.n_tiles());
     let mut idx_offset = 1;
-    for (tile, fd) in fill_grid.iter_mut() {
+    for (tile, fd) in &fill_grid.grid {
         let graph = &fd.spill_graph;
         for (idx, node) in graph.iter().enumerate() {
             for (neighbour, spill_elev) in node {
@@ -151,46 +188,41 @@ fn build_supergraph<T: Copy + FloatCore>(
                     .insert(TLabel::try_from(idx).unwrap(), *spill_elev);
             }
         }
-        fd.label_offset = Some(idx_offset);
+        idx_offsets.insert(*tile, idx_offset);
         idx_offset += TLabel::try_from(graph.len()).unwrap();
     }
 
     // check this tile's edges and connect them accordingly
-    for ((tx, ty), fd) in fill_grid.iter() {
-        let tile = &fd.tile_info;
+    for (t, fd) in fill_grid.grid.iter() {
+        // let tile = &fd.tile_info;
         // now check all tiles and connect their nodes
         // for indexing into edges
-        let edge_offsets = skirt_starts(tile.meta());
+        // let edge_offsets = skirt_starts(tile.meta());
         // manual index shifting because we don't have a super-meta
         for dir in 0..8 {
-            let nx = (isize::try_from(*tx).unwrap() + XSHIFT[dir]) as usize;
-            let ny = (isize::try_from(*ty).unwrap() + YSHIFT[dir]) as usize;
-            // now we also know it's in fill_grid:
-            let n_fd = &fill_grid[&(nx, ny)];
-            // something something edges
-            // TODO: different tiles etc
-            assert_eq!(tile.meta(), n_fd.tile_info.meta());
-            for edge_idx in edge_offsets[dir]..edge_offsets[dir + 1] {
-                // add offset here, we're basically only interested in supergraph labels
-                let n_label = n_fd.label_edges[edge_idx] + n_fd.label_offset.unwrap();
-                let my_label = fd.label_edges[edge_idx] + fd.label_offset.unwrap();
-                let spill_elev = n_fd.dem_edges[edge_idx].max(fd.dem_edges[edge_idx]);
-                if let Some(elev) = supergraph[usize::try_from(my_label).unwrap()]
-                    .get_mut(&(n_label + n_fd.label_offset.unwrap()))
-                {
-                    if *elev > spill_elev {
-                        *elev = spill_elev;
-                        supergraph[usize::try_from(n_label + n_fd.label_offset.unwrap()).unwrap()]
-                            .insert(my_label + fd.label_offset.unwrap(), spill_elev);
+            let (my_labels, my_elevs) = fill_grid.edge(t, dir).unwrap();
+            if let Some(n_coord) = fill_grid.neighbour(*t, dir) {
+                let (n_labels, n_elevs) = fill_grid.edge(&n_coord, GridMeta::rev(dir as usize) as u8).unwrap();
+                    for edge_idx in 0..my_labels.len() {
+                        watersheds_meet(
+                    my_labels[edge_idx] + idx_offsets[t],
+                    n_labels[edge_idx] + idx_offsets[&n_coord],
+                    my_elevs[edge_idx],
+                    n_elevs[edge_idx],
+                    &mut supergraph,
+                );
                     }
-                } else {
-                    supergraph[usize::try_from(my_label).unwrap()].insert(n_label, spill_elev);
-                    supergraph[usize::try_from(n_label).unwrap()].insert(my_label, spill_elev);
+            } else {
+                for edge_idx in 0..my_labels.len() {
+                    watersheds_meet(my_labels[edge_idx] + idx_offsets[t], 0, my_elevs[edge_idx], T::min_value(), &mut supergraph);
                 }
             }
         }
     }
-    supergraph
+    SuperGraph {
+        spill_graph: supergraph,
+        offsets: idx_offsets
+    }
 }
 
 /// Cell of a graph with reverse ordering for the priority queue
@@ -219,25 +251,26 @@ impl<T: TotalOrder> Ord for GraphCell<T> {
     }
 }
 
-fn fill_supergraph<T: TotalOrder + Default + FloatCore>(mut graph_grid: FillGrid<T>) -> RaiseGrid<T> {
-    let supergraph = build_supergraph(&mut graph_grid);
-    let mut graph_elevs = vec![T::default(); supergraph.len()];
+fn fill_supergraph<T: TotalOrder + Default + FloatCore>(
+    graph_grid: FillGrid<T>,
+) -> RaiseGrid<T> {
+    let supergraph = build_supergraph(&graph_grid);
+
+    let mut graph_elevs = vec![T::default(); supergraph.spill_graph.len()];
     // So ideally this would be Zhou, but I guess we can just priority-queue (Barnes) our way out?
-    let mut pq = BinaryHeap::with_capacity(supergraph.len());
+    let mut pq = BinaryHeap::new();
     // the edge: special watershed 0 (why 1? was something else 0?) is connected to all edges of the grid
-    for (&label, &spill_elev) in &supergraph[0] {
+    for (&label, &spill_elev) in &supergraph.spill_graph[0] {
         pq.push(GraphCell { label, spill_elev });
     }
-    fill_graph(&supergraph, &mut graph_elevs, &mut pq);
-    let mut res = HashMap::with_capacity(graph_grid.len());
-    for (_, fd) in graph_grid {
-        let offset = usize::try_from(fd.label_offset.unwrap()).unwrap();
-        let range = offset..offset+fd.spill_graph.len();
+    fill_graph(&supergraph.spill_graph, &mut graph_elevs, &mut pq);
+
+    let mut res = HashMap::with_capacity(graph_grid.n_tiles());
+    for (coord, offset) in supergraph.offsets {
+        let fd = &graph_grid.grid[&coord];
+        let range = offset as usize..offset as usize + fd.spill_graph.len();
         // TODO: can we share references here in stead of vecs?
-        res.insert(
-            fd.tile_info,
-            graph_elevs[range].to_vec(),
-        );
+        res.insert(fd.tile_info.clone(), graph_elevs[range].to_vec());
     }
     res
 }

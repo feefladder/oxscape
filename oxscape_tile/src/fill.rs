@@ -1,9 +1,10 @@
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 
+use num_traits::Float;
 use ordered_float::FloatCore;
 use oxscape::GridMeta;
 
-use crate::{Cell, TLabel};
+use crate::{Cell, TLabel, producer::SpillGraph};
 
 /// flag bit for the region of interest.
 ///
@@ -248,6 +249,34 @@ pub fn fill_zhou2016<T: FloatCore + NextUp>(meta: &GridMeta, dem: &mut [T], labe
     let mut state = ZhouFillState::new(2);
     state.add_edge(meta, dem);
     while state.step(meta, dem, labels, |_, _| {}) {}
+}
+
+pub fn watersheds_meet<T: FloatCore>(
+    mut my_label: TLabel,
+    mut n_label: TLabel,
+    my_elev: T,
+    n_elev: T,
+    spill_graph: &mut SpillGraph<T>,
+) {
+    if n_label == 0 {
+        return;
+    }
+    if my_label == n_label {
+        return;
+    }
+    let elev_over = my_elev.max(n_elev);
+
+    //Ensure that my_label is always smaller. Doing so means that we only need to
+    //keep track of one half of what is otherwise a bidirectional weighted graph
+    if my_label > n_label {
+        std::mem::swap(&mut my_label, &mut n_label);
+    }
+    // insert if new or lower than existing
+    if spill_graph[my_label as usize].is_empty() {
+        spill_graph[my_label as usize].insert(n_label, elev_over);
+    } else if elev_over < spill_graph[my_label as usize][&n_label] {
+        *spill_graph[my_label as usize].get_mut(&n_label).unwrap() = elev_over;
+    }
 }
 
 #[cfg(test)]

@@ -10,6 +10,9 @@ pub mod sflow;
 
 use std::env;
 use std::f64::consts::SQRT_2;
+use std::ops::Range;
+
+use anyhow::anyhow;
 
 pub type Result<T> = anyhow::Result<T>;
 
@@ -196,18 +199,32 @@ impl GridMeta {
 
     /// Get an iterator returning the edge:
     /// ```
-    /// 1 2 3
-    /// 0   4
-    /// 7 6 5
+    /// # use oxscape::GridMeta;
+    /// let arr = [
+    ///    0, 1, 2, 3,
+    ///    4, 5, 6, 7,
+    ///    8, 9,10,11,
+    ///   12,13,14,15,
+    /// ];
+    /// let meta = GridMeta::new(4,4);
+    /// // 012 2 2 234
+    /// //  0       4
+    /// //  0       4
+    /// // 067 6 6 456
+    /// assert_eq!(meta.edge(&arr, 0).map(|v|*v).collect::<Vec<_>>(), &[0,4,8,12]);
+    /// assert_eq!(meta.edge(&arr, 1).map(|v|*v).collect::<Vec<_>>(), &[0]);
+    /// assert_eq!(meta.edge(&arr, 2).map(|v|*v).collect::<Vec<_>>(), &[0,1,2,3]);
+    /// assert_eq!(meta.edge(&arr, 3).map(|v|*v).collect::<Vec<_>>(), &[3]);
+    /// assert_eq!(meta.edge(&arr, 4).map(|v|*v).collect::<Vec<_>>(), &[3,7,11,15]);
+    /// assert_eq!(meta.edge(&arr, 5).map(|v|*v).collect::<Vec<_>>(), &[15]);
+    /// assert_eq!(meta.edge(&arr, 6).map(|v|*v).collect::<Vec<_>>(), &[12,13,14,15]);
+    /// assert_eq!(meta.edge(&arr, 7).map(|v|*v).collect::<Vec<_>>(), &[12]);
     /// ```
     #[rustfmt::skip]
     pub fn edge<'a, T>(&'a self, data: &'a [T], dir: u8) -> EdgeIterator<'a, T> {
         let width = self.width();
         let end = self.size();
-        //  0, 1, 2, 3,
-        //  4, 5, 6, 7,
-        //  8, 9,10,11,
-        // 12,13,14,15
+        
         // 
         match dir {
             //                                   0..13=15-2
@@ -225,6 +242,70 @@ impl GridMeta {
             //                                      12=15-3..12=15-3
             7 => EdgeIterator::new(&data[end - width..end - width + 1], 1),
             _ => unreachable!(),
+        }
+    }
+
+    /// Starting positions of the edges if they are collected into a single array
+    /// 
+    /// This can always be used as let edge = edges[skirt_range(dir)]
+    /// in
+    /// ```
+    /// # use oxscape::GridMeta;
+    /// let arr = [
+    ///    0, 1, 2, 3,
+    ///    4, 5, 6, 7,
+    ///    8, 9,10,11,
+    ///   12,13,14,15,
+    /// ];
+    /// //  0  1  2  3
+    /// //  4        7
+    /// //  8       11
+    /// // 12 13 14 15
+    /// let edges = [
+    ///     0,4,8,12,
+    ///     0,
+    ///     0,1,2,3,
+    ///     3,
+    ///     3,7,11,15,
+    ///     15,
+    ///     12,13,14,15,
+    ///     12,
+    /// ];
+    /// let meta = GridMeta::new(4,4);
+    /// for dir in 0..8 {
+    ///     println!("{dir}");
+    ///     for (edge_cell, skirt_cell) in meta.edge(&arr,dir).zip(&edges[meta.skirt_range(dir)]) {
+    ///         println!("{edge_cell:?}?={skirt_cell:?}");
+    ///         assert_eq!(edge_cell, skirt_cell)
+    ///     }
+    /// }
+    /// ```
+    /// -order
+    /// Note that internal edge order is still left-to-right, top-to-bottom, so:
+    /// ```raw
+    /// index     total index (+skirt_start)
+    /// 0 0 1 0     2 3 4 5
+    /// 0     0     0     6
+    /// 1     1     1     7
+    /// 0 0 1 0     B 9 A 8
+    /// ```
+    /// 
+    pub fn skirt_range(&self, dir: u8) -> Range<usize> {
+        self.skirt_idx(dir)..self.skirt_idx(dir+1)
+    }
+
+    fn skirt_idx(&self, dir: u8) -> usize {
+        match dir {
+            0 => 0,
+            1 => self.height(),
+            2 => self.height() + 1,
+            3 => self.height() + 1 + self.width(),
+            4 => self.height() + 1 + self.width() + 1,
+            5 => self.height() + 1 + self.width() + 1 + self.height(),
+            6 => self.height() + 1 + self.width() + 1 + self.height() + 1,
+            7 => self.height() + 1 + self.width() + 1 + self.height() + 1 + self.width(),
+            8 => self.height() + 1 + self.width() + 1 + self.height() + 1 + self.width() + 1,
+            d => panic!("Direction {d} out-of-bounds")
         }
     }
 

@@ -30,16 +30,16 @@ use oxscape::GridMeta;
 
 use crate::{
     array_2d::{Array2D, BorrowedArray2D},
-    fill::{NextUp, ZhouFillState, fill_zhou2016},
-    producer::{ConsumerMessage, FillData, ProducerMessage, SpillGraph},
+    fill::{NextUp, ZhouFillState, fill_zhou2016, watersheds_meet},
+    producer::{ConsumerMessage, FillData, ProducerMessage, SpillGraph, TileCoord},
     tile::TileInfo,
 };
 
 #[async_trait]
 pub trait TileServer<T> {
-    async fn get_tile(&self, x: usize, y: usize) -> Vec<T>;
-    async fn save_to_cache(&self, x: usize, y: usize, name: &str, data: &[T], meta: &GridMeta);
-    async fn load_from_cache(&self, x: usize, y: usize, name: &str) -> Vec<T>;
+    async fn get_tile(&self, tile_xy: TileCoord) -> Vec<T>;
+    async fn save_to_cache(&self, tile_xy: TileCoord, name: &str, data: &[T], meta: &GridMeta);
+    async fn load_from_cache(&self, tile_xy: TileCoord, name: &str) -> Vec<T>;
 }
 
 // ConsumerSpecifics struct
@@ -67,9 +67,9 @@ where
                         2 * info.meta().width() + 2 * info.meta().height()
                             - 4
                     ];
-                    let (tile_x, tile_y) = info.xy();
+                    let tc = info.xy();
                     // load the tile from whatever backing store
-                    let dem_buf = &mut tile_server.get_tile(tile_x, tile_y).await[..];
+                    let dem_buf = &mut tile_server.get_tile(tc).await[..];
                     let dem: &mut [ElevT] = cast_slice_mut(dem_buf);
                     let mut labels = vec![0; info.meta().size()];
                     // Do the depression filling. This is the Zhou algorithm, with a
@@ -81,26 +81,8 @@ where
                         &info.meta(),
                         dem,
                         &mut labels,
-                        |(mut my_label, mut n_label), (my_elev, n_elev)| {
-                            if n_label == 0 {
-                                return;
-                            }
-                            if my_label == n_label {
-                                return;
-                            }
-                            let elev_over = my_elev.max(n_elev);
-
-                            //Ensure that my_label is always smaller. Doing so means that we only need to
-                            //keep track of one half of what is otherwise a bidirectional weighted graph
-                            if my_label > n_label {
-                                std::mem::swap(&mut my_label, &mut n_label);
-                            }
-                            if spill_graph[my_label as usize].is_empty() {
-                                spill_graph[my_label as usize].insert(n_label, elev_over);
-                            } else if elev_over < spill_graph[my_label as usize][&n_label] {
-                                *spill_graph[my_label as usize].get_mut(&n_label).unwrap() =
-                                    elev_over;
-                            }
+                        |(my_label, n_label), (my_elev, n_elev)| {
+                            watersheds_meet(my_label, n_label, my_elev, n_elev, &mut spill_graph)
                         },
                     ) {}
 
@@ -118,17 +100,16 @@ where
                     }
 
                     tile_server
-                        .save_to_cache(tile_x, tile_y, "dem", cast_slice(&dem), info.meta())
+                        .save_to_cache(tc, "dem", cast_slice(&dem), info.meta())
                         .await;
                     tile_server
-                        .save_to_cache(tile_x, tile_y, "labels", cast_slice(&labels), info.meta())
+                        .save_to_cache(tc, "labels", cast_slice(&labels), info.meta())
                         .await;
                     let res = FillData {
                         tile_info: info,
                         spill_graph,
                         dem_edges,
                         label_edges,
-                        label_offset: None,
                     };
                     // TODO: apparently we may also need like edge info, but idk why... ah yes for edge tiles that connect to watershed 1 I guess?
                     tx.send(ConsumerMessage::InitialFillComplete(res))
@@ -136,10 +117,10 @@ where
                         .unwrap();
                 }
                 ProducerMessage::CatchmentRaise(info, elevations) => {
-                    let (x, y) = info.xy();
-                    let dem_buf = &mut tile_server.load_from_cache(x, y, "dem").await;
+                    let tc = info.xy();
+                    let dem_buf = &mut tile_server.load_from_cache(tc, "dem").await;
                     let dem = cast_slice_mut(dem_buf);
-                    let labels_buf = &tile_server.load_from_cache(x, y, "labels").await;
+                    let labels_buf = &tile_server.load_from_cache(tc, "labels").await;
                     let labels: &[u32] = cast_slice(labels_buf);
                     for (z, label) in dem.iter_mut().zip(labels) {
                         if elevations[*label as usize] > *z {
@@ -147,7 +128,7 @@ where
                         }
                     }
                     tile_server
-                        .save_to_cache(x, y, "dem", cast_slice(dem), info.meta())
+                        .save_to_cache(tc, "dem", cast_slice(dem), info.meta())
                         .await;
                 }
                 ProducerMessage::Quit => break,

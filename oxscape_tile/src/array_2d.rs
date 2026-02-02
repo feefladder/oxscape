@@ -128,7 +128,7 @@ impl<T> Array2D<T> for BorrowedArray2D<'_, T> {
 /// ```
 pub struct SkirtedTile<T> {
     /// skirt data. On a 2-by-2 tile, it's indexed like:
-    /// ```
+    /// ```raw
     /// 1 2 2 3
     /// 0     4
     /// 0     4
@@ -137,7 +137,6 @@ pub struct SkirtedTile<T> {
     /// [001223445667]
     /// ```
     skirt: Vec<T>,
-    starts: [usize; 9],
     /// bitmask to say which edges/corners are loaded
     /// ```raw
     /// 1 2 3
@@ -150,45 +149,12 @@ pub struct SkirtedTile<T> {
     skirted_meta: GridMeta,
 }
 
-/// Starting positions of the edges if they are collected into a single array, in
-/// ```raw
-/// 1 2 2 3
-/// 0     4
-/// 0     4
-/// 7 6 6 5
-/// ```
-/// -order
-/// Note that internal edge order is still left-to-right, top-to-bottom, so:
-/// ```raw
-/// index     total index (+skirt_start)
-/// 0 0 1 0     2 3 4 5
-/// 0     0     0     6
-/// 1     1     1     7
-/// 0 0 1 0     B 9 A 8
-/// ```
-/// Not sure if here is the best place to expose it though...
-pub(crate) fn skirt_starts(meta: &GridMeta) -> [usize; 9] {
-    [
-        0,
-        meta.height(),
-        meta.height() + 1,
-        meta.height() + 1 + meta.width(),
-        meta.height() + 1 + meta.width() + 1,
-        meta.height() + 1 + meta.width() + 1 + meta.height(),
-        meta.height() + 1 + meta.width() + 1 + meta.height() + 1,
-        meta.height() + 1 + meta.width() + 1 + meta.height() + 1 + meta.width(),
-        meta.height() + 1 + meta.width() + 1 + meta.height() + 1 + meta.width() + 1,
-    ]
-}
-
 impl<T: Bounded + Clone + Debug> SkirtedTile<T> {
     /// Create a new SkirtedTile with edges initialized as Max value
     pub fn new(meta: GridMeta, data: Vec<T>) -> Self {
         assert!(meta.size() == data.len());
-        let starts = skirt_starts(&meta);
         Self {
-            skirt: vec![T::max_value(); starts[8]],
-            starts,
+            skirt: vec![T::max_value(); meta.skirt_range(7).end],
             has_edges: 0,
             center: data,
             skirted_meta: GridMeta::new(meta.width() + 1, meta.height() + 1),
@@ -198,9 +164,7 @@ impl<T: Bounded + Clone + Debug> SkirtedTile<T> {
 
     pub fn add_edge<'a>(&mut self, edge: EdgeIterator<'a, T>, dir: u8) {
         self.has_edges |= 1 << dir;
-        let edge_range = self.starts[usize::from(dir)]..self.starts[usize::from(dir) + 1];
-        println!("adding edge {dir}, which has internal range: {edge_range:?}");
-        for (new, old) in edge.zip(&mut self.skirt[edge_range]) {
+        for (new, old) in edge.zip(&mut self.skirt[self.meta.skirt_range(dir)]) {
             println!("adding value: {new:?}");
             *old = new.clone()
         }
@@ -245,13 +209,13 @@ impl<T> Index<(usize, usize)> for SkirtedTile<T> {
             println!("getting value from edge: {dir}");
             if dir % 2 == 1 {
                 // corner
-                &self.skirt[self.starts[usize::from(dir)]]
+                &self.skirt[self.meta.skirt_range(dir).start]
             } else if dir == 0 || dir == 4 {
                 // left or right
-                &self.skirt[y - 1 + self.starts[usize::from(dir)]]
+                &self.skirt[y - 1 + self.meta.skirt_range(dir).start]
             } else if dir == 2 || dir == 6 {
                 // top or bottom
-                &self.skirt[x - 1 + self.starts[usize::from(dir)]]
+                &self.skirt[x - 1 + self.meta.skirt_range(dir).start]
             } else {
                 unreachable!()
             }
@@ -267,13 +231,13 @@ impl<T> IndexMut<(usize, usize)> for SkirtedTile<T> {
         if let Some(dir) = self.which_edge(x, y) {
             if dir % 2 == 1 {
                 // corner
-                &mut self.skirt[self.starts[usize::from(dir)]]
+                &mut self.skirt[self.meta.skirt_range(dir).start]
             } else if dir == 0 || dir == 4 {
                 // left or right
-                &mut self.skirt[y - 1 + self.starts[usize::from(dir)]]
+                &mut self.skirt[y - 1 + self.meta.skirt_range(dir).start]
             } else if dir == 2 || dir == 6 {
                 // top or bottom
-                &mut self.skirt[x - 1 + self.starts[usize::from(dir)]]
+                &mut self.skirt[x - 1 + self.meta.skirt_range(dir).start]
             } else {
                 unreachable!()
             }
@@ -290,7 +254,7 @@ impl<T> Array2D<T> for SkirtedTile<T> {
 
     fn edge<'a>(&'a self, dir: u8) -> EdgeIterator<'a, T> {
         EdgeIterator::new(
-            &self.skirt[self.starts[usize::from(dir)]..self.starts[usize::from(dir) + 1]],
+            &self.skirt[self.meta.skirt_range(dir)],
             1,
         )
     }
