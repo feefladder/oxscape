@@ -9,12 +9,12 @@ use oxscape_erode::{
     Params, add_uplift,
     mflow::{accum, erode},
 };
-use oxscape_tile::fill::fill_zhou2016;
+use oxscape_tile::fill::{NOT_FILLED, fill_zhou2016};
 use ratatui::prelude::*;
 use ratatui::widgets::WidgetRef;
 use rayon::prelude::*;
 
-use crate::{DIRS, Simulation, random_dem};
+use crate::{DIRS, random_dem};
 
 pub struct DefaultSim {
     gradient: Gradient,
@@ -65,10 +65,8 @@ impl DefaultSim {
             seed: 42,
         })
     }
-}
 
-impl Simulation for DefaultSim {
-    fn init(width: usize, height: usize, gradient: Gradient) -> Result<Self> {
+    pub fn init(width: usize, height: usize, gradient: Gradient) -> Result<Self> {
         let meta = GridMeta::new(width, height);
         let params = Params {
             cell_area: 10000.0,
@@ -77,7 +75,7 @@ impl Simulation for DefaultSim {
 
         let mut dem = vec![0.0; meta.size()];
         random_dem(&mut dem, &meta, 42).map_err(|e| Report::msg(e.to_string()))?;
-        fill_zhou2016(&meta, &mut dem, &mut vec![0; meta.size()]);
+        fill_zhou2016(&meta, &mut dem, &mut vec![NOT_FILLED; meta.size()]);
         let order = Order::from_dem_metric(meta, &dem, &mut Dinf)
             .map_err(|e| Report::msg(e.to_string()))?;
 
@@ -91,7 +89,7 @@ impl Simulation for DefaultSim {
         })
     }
 
-    fn resize(&mut self, width: usize, height: usize) -> Result<()> {
+    pub fn resize(&mut self, width: usize, height: usize) -> Result<()> {
         let meta = GridMeta::new(width, height);
         self.dem.resize(meta.size(), 0.0);
         random_dem(&mut self.dem, &meta, self.seed).map_err(|e| Report::msg(e.to_string()))?;
@@ -101,21 +99,21 @@ impl Simulation for DefaultSim {
         Ok(())
     }
 
-    fn restart(&mut self) -> Result<()> {
+    pub fn restart(&mut self) -> Result<()> {
         self.seed += 1;
         random_dem(&mut self.dem, self.order.meta(), self.seed)
             .map_err(|e| Report::msg(e.to_string()))?;
         fill_zhou2016(
             self.order.meta(),
             &mut self.dem,
-            &mut vec![0; self.order.meta().size()],
+            &mut vec![NOT_FILLED; self.order.meta().size()],
         );
         self.order
             .reorder(&self.dem, &mut Dinf)
             .map_err(|e| Report::msg(e.to_string()))
     }
 
-    fn step(&mut self) -> Result<()> {
+    pub fn step(&mut self) -> Result<()> {
         add_uplift(self.order.meta(), &self.params, &mut self.dem);
         accum(&self.order, &self.params, &mut self.accum);
         erode(&self.order, &self.params, &self.accum, &mut self.dem);

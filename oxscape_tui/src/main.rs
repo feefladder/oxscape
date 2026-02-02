@@ -11,8 +11,8 @@ use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode};
 use oxscape::GridMeta;
 use oxscape_erode::Params;
+use oxscape_tile::{fill::NOT_FILLED, producer::TileCoord};
 use oxscape_tui::{
-    Simulation,
     sim::DefaultSim,
     tile::{Tile, TiledSim},
 };
@@ -62,21 +62,19 @@ impl WidgetRef for Mode {
                 // let min_acc = flow_accumulation.par_iter().min_by(|a,b| a.total_cmp(*b)).unwrap();
                 let max_acc = flow_accumulation
                     .par_iter()
-                    .max_by(|a, b| a.total_cmp(*b))
+                    .max_by(|a, b| a.total_cmp(b))
                     .unwrap();
-                for i in 0..sim.meta().size() {
+                for (i, acc) in flow_accumulation.iter().enumerate() {
                     let (x, y) = sim.meta().i_to_xy(i);
                     let tx = u16::try_from(x * 2).unwrap() + area.left();
                     let ty = u16::try_from(y).unwrap() + area.top();
                     if sim.labels()[i] != unseeded_sim.labels()[i] {
                         let c = colorous::PAIRED[unseeded_sim.labels()[i] as usize % 12];
                         buf[(tx, ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
-                        let c = colorous::MAGMA
-                            .eval_continuous(flow_accumulation[i].sqrt() / max_acc.sqrt());
+                        let c = colorous::MAGMA.eval_continuous(acc.sqrt() / max_acc.sqrt());
                         buf[(tx + 1, ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
                     } else {
-                        let c = colorous::MAGMA
-                            .eval_continuous(flow_accumulation[i].sqrt() / max_acc.sqrt());
+                        let c = colorous::MAGMA.eval_continuous(acc.sqrt() / max_acc.sqrt());
                         buf[(tx, ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
                         buf[(tx + 1, ty)].set_bg(Color::Rgb(c.r, c.g, c.b));
                     }
@@ -92,7 +90,7 @@ fn main() -> Result<()> {
     let mut terminal = ratatui::init();
     let s = terminal.size()?;
     let mut start_frame = terminal.get_frame().count();
-    let tile_size = 8;
+    let tile_size = 32;
     let mut mode = Mode::Full(DefaultSim::init(
         usize::from(s.width / 2 / tile_size * tile_size),
         usize::from(s.height / tile_size * tile_size),
@@ -130,14 +128,19 @@ fn main() -> Result<()> {
                             while sim.step() {}
                             while unseeded_sim.step() {}
                         }
-                        _ => todo!(),
+                        Mode::Tiled {
+                            tiled_sim,
+                            flow_accumulation: _,
+                        } => {
+                            tiled_sim.complete_step();
+                        }
                     },
                     KeyCode::Right => mode.step()?,
                     KeyCode::Char(' ') => play = !play,
                     KeyCode::Tab => {
-                        // switch to tiled version (and back?)
                         match mode {
                             Mode::Full(sim) => {
+                                // move to depression filling
                                 let min =
                                     *sim.dem().par_iter().max_by(|a, b| b.total_cmp(a)).unwrap();
                                 let max =
@@ -145,8 +148,8 @@ fn main() -> Result<()> {
                                 // move to tiled.
                                 let mut fill_sim = Tile::new(
                                     sim.dem().to_vec(),
-                                    1,
-                                    vec![0; sim.meta().size()],
+                                    vec![NOT_FILLED; sim.meta().size()],
+                                    TileCoord { x: 0, y: 0 },
                                     sim.meta().clone(),
                                     min,
                                     max,
@@ -169,7 +172,7 @@ fn main() -> Result<()> {
                                     unseeded_sim,
                                     flow_accumulation: sim.accum().to_vec(),
                                 };
-                                // fill animation is slow, so we want to play it
+                                // set playing
                                 play = false;
                             }
                             Mode::Fill {
@@ -182,30 +185,30 @@ fn main() -> Result<()> {
                                     sim.dem(),
                                     sim.meta(),
                                     usize::from(tile_size),
-                                    2,
                                     &[colorous::CUBEHELIX], // colorous::INFERNO, colorous::VIRIDIS],
                                 );
-                                // seed with max accumulation
-                                let max_idx = flow_accumulation
-                                    .par_iter()
-                                    .enumerate()
-                                    .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                                    .map(|(idx, _)| idx)
-                                    .unwrap();
-                                let (max_x, max_y) = sim.meta().i_to_xy(max_idx);
-                                // first get tile index
-                                tsim.seed_slope(max_x, max_y);
+                                tsim.start_all();
+                                // // seed with max accumulation
+                                // let max_idx = flow_accumulation
+                                //     .par_iter()
+                                //     .enumerate()
+                                //     .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                                //     .map(|(idx, _)| idx)
+                                //     .unwrap();
+                                // let (max_x, max_y) = sim.meta().i_to_xy(max_idx);
+                                // // first get tile index
+                                // tsim.seed_slope(max_x, max_y);
                                 mode = Mode::Tiled {
                                     tiled_sim: tsim,
                                     flow_accumulation,
                                 };
-                                // tiled animation is slow, so we want to play it
+                                // set playing
                                 play = false;
                             }
                             Mode::Tiled {
                                 tiled_sim: ref t, ..
                             } => {
-                                // move from tiled to normal
+                                // move from tiled to erosion
                                 let ts = usize::from(tile_size);
                                 let meta_full =
                                     GridMeta::new(t.meta().width() * ts, t.meta().height() * ts);
@@ -224,7 +227,6 @@ fn main() -> Result<()> {
                                     cell_area: 10000.0,
                                     ..Default::default()
                                 };
-                                // re-assign mode at this point, so references to dems are dropped
                                 mode = Mode::Full(DefaultSim::from_dem(
                                     dem,
                                     meta_full,

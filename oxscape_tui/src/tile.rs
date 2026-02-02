@@ -1,17 +1,22 @@
+use std::{collections::HashMap, f64};
+
 use color_eyre::{Result, eyre::Ok};
 use colorous::Gradient;
 use oxscape::GridMeta;
 use oxscape_tile::{
     TLabel,
-    fill::{ROI_FLAG, ZhouFillState},
+    fill::{NOT_FILLED, ROI_FLAG, ZhouFillState, watersheds_meet},
+    producer::{
+        FillData, GraphFillState, RaiseGrid, SpillGraph, SuperGraph, TileCoord, VecFillGrid,
+        build_supergraph,
+    },
 };
-use ratatui::widgets::WidgetRef;
+use ratatui::widgets::{
+    WidgetRef,
+    canvas::{Canvas, Circle, Line},
+};
 use ratatui::{prelude::*, widgets::Paragraph};
 use rayon::prelude::*;
-
-use crate::Simulation;
-
-const NOT_INTERESTING: f64 = f64::MAX;
 
 pub struct TiledSim {
     meta: GridMeta,
@@ -21,243 +26,19 @@ pub struct TiledSim {
     tile_queue: Vec<usize>,
     /// tiles that are finished and should not be added to the queue
     finished: Vec<bool>,
+    current_step: TiledSimStep,
 }
 
-impl Simulation for TiledSim {
-    fn init(width: usize, height: usize, gradient: Gradient) -> Result<Self> {
-        todo!()
-    }
-
-    fn resize(&mut self, width: usize, height: usize) -> Result<()> {
-        todo!()
-    }
-
-    fn restart(&mut self) -> Result<()> {
-        todo!()
-    }
-
-    fn step(&mut self) -> Result<()> {
-        // So the better thing here would be to have a tile return its edge information and then
-        // tell the other tile to check whether it should be further added to the tile queue
-        // also I should be really doing this graph thing right now...
-        // and ideally we should be both doing the normal depression filling, as well as this roi-searching depression filling...
-        // but the roi part messes things up a bit...
-        // ah! we can just initialize the tile queue as a full queue for the non-searching version
-        let level_finished = self.tile_queue.iter().all(|idx| !self.tiles[*idx].step());
-        if level_finished {}
-        for tile_idx in self
-            .finished
-            .iter()
-            .enumerate()
-            // .filter(|(idx, finished)| **finished && self.playing[*idx])
-            .map(|(idx, _)| idx)
-            .collect::<Vec<_>>()
-        {
-            // self.finished[tile_idx] = false;
-
-            // self.playing[tile_idx] = false;
-
-            // so now we have to initialize neighbouring tiles....
-            // I always wanted a u8 bitmask
-            //  2  4  8
-            //  1    16
-            //128 64 32
-            // so 1,4,16 and 64 are edges and 2,8,32,128 are corners
-            // we need label and elevation data from the current tile
-            // let mut edge_mask = 0u8;
-            // maybe we can put all that data in a single vec and do some smart index stuff
-            // but for now, let's ignore any performance
-            // also let's not store that data, but just have a bunch of for loops
-            // we want to both mutate neighbouring tiles and look at the current tile...
-            let tile_labels = self.tiles()[tile_idx].labels.clone();
-            let tile_dem = self.tiles()[tile_idx].dem().to_vec();
-            let tile_meta = self.tiles()[tile_idx].meta().clone();
-            let (tile_x, tile_y) = self.meta.i_to_xy(tile_idx);
-            // left edge
-            if let Some(left_tile_idx) = self.meta.try_shift(tile_x, tile_y, 0)
-                && !self.finished[left_tile_idx]
-            {
-                let idxs;
-                {
-                    let left_tile = &self.tiles()[left_tile_idx];
-                    idxs = (0..tile_meta.height())
-                        .filter(|y| {
-                            if tile_labels[tile_meta.xy_to_i(0, *y)] & ROI_FLAG == ROI_FLAG {
-                                left_tile.dem()
-                                    [left_tile.meta().xy_to_i(left_tile.meta().width() - 1, *y)]
-                                    > tile_dem[tile_meta.xy_to_i(0, *y)]
-                            } else {
-                                false
-                            }
-                        })
-                        .map(|y| left_tile.meta().xy_to_i(left_tile.meta().width() - 1, y))
-                        .collect::<Vec<_>>();
-                }
-                if !idxs.is_empty() {
-                    // self.playing[left_tile_idx] = true;
-                    self.tiles[left_tile_idx].add_edge();
-                    self.tiles[left_tile_idx].seed_slope(&idxs);
-                }
-            }
-            // top edge
-            if let Some(top_tile_idx) = self.meta.try_shift(tile_x, tile_y, 2)
-                && !self.finished[top_tile_idx]
-            {
-                let idxs;
-                {
-                    let top_tile = &self.tiles()[top_tile_idx];
-                    idxs = (0..tile_meta.width())
-                        .filter(|x| {
-                            if tile_labels[tile_meta.xy_to_i(*x, 0)] & ROI_FLAG == ROI_FLAG {
-                                top_tile.dem()
-                                    [top_tile.meta().xy_to_i(*x, top_tile.meta().height() - 1)]
-                                    > tile_dem[tile_meta.xy_to_i(*x, 0)]
-                            } else {
-                                false
-                            }
-                        })
-                        .map(|x| top_tile.meta().xy_to_i(x, top_tile.meta().height() - 1))
-                        .collect::<Vec<_>>();
-                }
-                if !idxs.is_empty() {
-                    // self.playing[top_tile_idx] = true;
-                    self.tiles[top_tile_idx].add_edge();
-                    self.tiles[top_tile_idx].seed_slope(&idxs);
-                }
-            }
-            // right edge
-            if let Some(right_tile_idx) = self.meta.try_shift(tile_x, tile_y, 4)
-                && !self.finished[right_tile_idx]
-            {
-                let idxs;
-                {
-                    let right_tile = &self.tiles()[right_tile_idx];
-                    idxs = (0..tile_meta.height())
-                        .filter(|y| {
-                            if tile_labels[tile_meta.xy_to_i(tile_meta.width() - 1, *y)] & ROI_FLAG
-                                == ROI_FLAG
-                            {
-                                right_tile.dem()[right_tile.meta().xy_to_i(0, *y)]
-                                    > tile_dem[tile_meta.xy_to_i(tile_meta.width() - 1, *y)]
-                            } else {
-                                false
-                            }
-                        })
-                        .map(|y| right_tile.meta().xy_to_i(0, y))
-                        .collect::<Vec<_>>();
-                }
-                if !idxs.is_empty() {
-                    // self.playing[right_tile_idx] = true;
-                    self.tiles[right_tile_idx].add_edge();
-                    self.tiles[right_tile_idx].seed_slope(&idxs);
-                }
-            }
-            // bottom edge
-            if let Some(bot_tile_idx) = self.meta.try_shift(tile_x, tile_y, 6)
-                && !self.finished[bot_tile_idx]
-            {
-                let idxs;
-                {
-                    let bot_tile = &self.tiles()[bot_tile_idx];
-                    idxs = (0..tile_meta.width())
-                        .filter(|x| {
-                            if tile_labels[tile_meta.xy_to_i(*x, tile_meta.height() - 1)] & ROI_FLAG
-                                == ROI_FLAG
-                            {
-                                bot_tile.dem()[bot_tile.meta().xy_to_i(*x, 0)]
-                                    > tile_dem[tile_meta.xy_to_i(*x, tile_meta.height() - 1)]
-                            } else {
-                                false
-                            }
-                        })
-                        .map(|x| bot_tile.meta().xy_to_i(x, 0))
-                        .collect::<Vec<_>>();
-                }
-                if !idxs.is_empty() {
-                    // self.playing[bot_tile_idx] = true;
-                    self.tiles[bot_tile_idx].add_edge();
-                    self.tiles[bot_tile_idx].seed_slope(&idxs);
-                }
-            }
-        }
-        //     // top-left corner
-        //     if let Some(tl_tile_idx) = self.meta.try_shift(tile_x, tile_y, 1) {
-        //         if !self.finished[tl_tile_idx] {
-        //             if tile_labels[0] & ROI_FLAG == ROI_FLAG {
-        //                 if *self.tiles[tl_tile_idx].dem().last().unwrap() > tile_dem[0] {
-        //                     self.playing[tl_tile_idx] = true;
-        //                     self.tiles[tl_tile_idx].add_edge();
-        //                     self.tiles[tl_tile_idx].seed_slope(&[tile_meta.size() - 1]);
-        //                 }
-        //             }
-        //         }
-        //     }
-        //     // top-right corner
-        //     if let Some(tr_tile_idx) = self.meta.try_shift(tile_x, tile_y, 3) {
-        //         if !self.finished[tr_tile_idx] {
-        //             let tr_idx = tile_meta.xy_to_i(tile_meta.width() - 1, 0);
-        //             if tile_labels[tr_idx] & ROI_FLAG == ROI_FLAG {
-        //                 if let Some(idx) = {
-        //                     let tr_tile = &self.tiles()[tr_tile_idx];
-        //                     let tr_bl_idx = tr_tile.meta().xy_to_i(0, tr_tile.meta().height() - 1);
-        //                     if tr_tile.dem()[tr_bl_idx] > tile_dem[tr_idx] {
-        //                         Some(tr_bl_idx)
-        //                     } else {
-        //                         None
-        //                     }
-        //                 } {
-        //                     self.playing[tr_tile_idx] = true;
-        //                     self.tiles[tr_tile_idx].add_edge();
-        //                     self.tiles[tr_tile_idx].seed_slope(&[idx]);
-        //                 }
-        //             }
-        //         }
-        //     }
-        //     // bottom-right corner
-        //     if let Some(br_tile_idx) = self.meta.try_shift(tile_x, tile_y, 5) {
-        //         if !self.finished[br_tile_idx] {
-        //             let br_idx = tile_meta.xy_to_i(tile_meta.width() - 1, tile_meta.height() - 1);
-        //             if tile_labels[br_idx] & ROI_FLAG == ROI_FLAG {
-        //                 if let Some(idx) = {
-        //                     let br_tile = &self.tiles()[br_tile_idx];
-        //                     let br_tl_idx = br_tile.meta().xy_to_i(0, 0);
-        //                     if br_tile.dem()[br_tl_idx] > tile_dem[br_idx] {
-        //                         Some(br_tl_idx)
-        //                     } else {
-        //                         None
-        //                     }
-        //                 } {
-        //                     self.playing[br_tile_idx] = true;
-        //                     self.tiles[br_tile_idx].add_edge();
-        //                     self.tiles[br_tile_idx].seed_slope(&[idx]);
-        //                 }
-        //             }
-        //         }
-        //     }
-        //     // bottom-left corner
-        //     if let Some(bl_tile_idx) = self.meta.try_shift(tile_x, tile_y, 7) {
-        //         if !self.finished[bl_tile_idx] {
-        //             let bl_idx = tile_meta.xy_to_i(0, tile_meta.height() - 1);
-        //             if tile_labels[bl_idx] & ROI_FLAG == ROI_FLAG {
-        //                 if let Some(idx) = {
-        //                     let bl_tile = &self.tiles()[bl_tile_idx];
-        //                     let bl_tr_idx = bl_tile.meta().xy_to_i(bl_tile.meta().width() - 1, 0);
-        //                     if bl_tile.dem()[bl_tr_idx] > tile_dem[bl_idx] {
-        //                         Some(bl_tr_idx)
-        //                     } else {
-        //                         None
-        //                     }
-        //                 } {
-        //                     self.playing[bl_tile_idx] = true;
-        //                     self.tiles[bl_tile_idx].add_edge();
-        //                     self.tiles[bl_tile_idx].seed_slope(&[idx]);
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-        Ok(())
-    }
+enum TiledSimStep {
+    InitialFill,
+    FillGraph {
+        supergraph: SuperGraph<f64>,
+        fill_state: GraphFillState<f64>,
+        graph_elevs: Vec<f64>,
+        node_locations: HashMap<TLabel, (f64, f64)>,
+    },
+    RaiseCatchment(RaiseGrid<f64>),
+    Done,
 }
 
 impl WidgetRef for TiledSim {
@@ -279,6 +60,70 @@ impl WidgetRef for TiledSim {
             }
             tile.render_ref(rect, buf);
         }
+        if let TiledSimStep::FillGraph {
+            supergraph,
+            fill_state,
+            graph_elevs,
+            node_locations,
+        } = &self.current_step
+        {
+            let rect = Rect {
+                x: 0,
+                y: 0,
+                width: (self.meta.width() * self.tile_size * 2) as u16,
+                height: (self.meta.height() * self.tile_size) as u16,
+            };
+            let max_spill_elev = *supergraph
+                .spill_graph()
+                .iter()
+                .map(|v| v.values().max_by(|a, b| a.total_cmp(b)).unwrap_or(&0.0))
+                .max_by(|a, b| a.total_cmp(b))
+                .unwrap_or(&1.0);
+            Canvas::default()
+                .x_bounds([0.0, f64::from(rect.width)])
+                .y_bounds([0.0, f64::from(rect.height)])
+                .paint(|ctx| {
+                    for (my_label, edges) in supergraph.spill_graph().iter().enumerate().skip(1) {
+                        let (my_x, my_y) = node_locations
+                            .get(&(my_label as u32))
+                            .unwrap_or(&(1.0, 1.0));
+                        let cf = colorous::PURPLES
+                            .eval_rational(my_label, supergraph.spill_graph().len());
+                        let cb =
+                            colorous::MAGMA.eval_continuous(graph_elevs[my_label] / max_spill_elev);
+                        ctx.print(
+                            *my_x * 2.0,
+                            *my_y,
+                            format!("{my_label}")
+                                .fg(Color::Rgb(cf.r, cf.g, cf.b))
+                                .bg(Color::Rgb(cb.r, cb.g, cb.b)),
+                        );
+                        for (n_label, spill_elev) in edges {
+                            if *n_label == 0 {
+                                continue;
+                            }
+                            let (n_x, n_y) = node_locations.get(n_label).unwrap_or(&(2.0, 2.0));
+
+                            let c =
+                                colorous::CUBEHELIX.eval_continuous(spill_elev / max_spill_elev);
+                            ctx.draw(&Line::new(
+                                *my_x * 2.0,
+                                *my_y,
+                                *n_x * 2.0,
+                                *n_y,
+                                Color::Rgb(c.r, c.g, c.b),
+                            ));
+                        }
+                    }
+                    for cell in fill_state.priority_queue() {
+                        let Some((x, y)) = node_locations.get(&cell.label()) else {
+                            continue;
+                        };
+                        ctx.draw(&Circle::new(*x * 2.0, *y, 2.0, Color::LightBlue));
+                    }
+                })
+                .render(rect, buf);
+        }
     }
 }
 
@@ -287,10 +132,109 @@ impl TiledSim {
     pub fn tiles(&self) -> &[Tile] {
         &self.tiles
     }
+
     #[must_use]
     pub fn meta(&self) -> &GridMeta {
         &self.meta
     }
+
+    pub fn complete_step(&mut self) {
+        match self.current_step {
+            TiledSimStep::InitialFill => {
+                let mut node_locations = HashMap::new();
+                let fill_grid = VecFillGrid::new(
+                    self.meta.clone(),
+                    self.tiles.iter_mut().map(Tile::complete_fill).collect(),
+                );
+                let supergraph = build_supergraph(&fill_grid);
+
+                // we need to visualize the graph, so nodes (labels) are placed at the center-of-mass of their respective catchments
+                for (tile_coords, (label_offset, n_labels)) in supergraph.offsets() {
+                    let tile = &self.tiles[self.meta.xy_to_i(tile_coords.x, tile_coords.y)];
+                    for label in 0..*n_labels as TLabel {
+                        // if only iterators had a .mean() function...
+                        // https://stackoverflow.com/a/43926007
+                        let (mut x_sum, mut y_sum) = (0, 0);
+                        let mut count = 0.0;
+                        for (x, y) in tile
+                            .labels()
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, l)| **l == label)
+                            .map(|(idx, _)| tile.meta().i_to_xy(idx))
+                        {
+                            x_sum += x;
+                            y_sum += y;
+                            count += 1.0;
+                        }
+                        // add tile offset to the label
+                        let label_x =
+                            x_sum as f64 / count + (tile_coords.x * tile.meta().width()) as f64;
+                        let label_y =
+                            y_sum as f64 / count + (tile_coords.y * tile.meta().width()) as f64;
+                        // already convert to terminal index (u16*2,)
+                        node_locations.insert(label + *label_offset, (label_x, label_y));
+                    }
+                }
+                let mut fill_state = GraphFillState::new(supergraph.spill_graph().len());
+                fill_state.seed(0, f64::MIN);
+                self.current_step = TiledSimStep::FillGraph {
+                    fill_state,
+                    graph_elevs: vec![0.0; supergraph.spill_graph().len()],
+                    supergraph,
+                    node_locations,
+                }
+            }
+            _ => todo!(),
+        }
+    }
+
+    pub fn step(&mut self) -> Result<()> {
+        // So the better thing here would be to have a tile return its edge information and then
+        // tell the other tile to check whether it should be further added to the tile queue
+        // also I should be really doing this graph thing right now...
+        // and ideally we should be both doing the normal depression filling, as well as this roi-searching depression filling...
+        // but the roi part messes things up a bit...
+        // ah! we can just initialize the tile queue as a full queue for the non-searching version
+        // let level_finished = self.tile_queue.iter().all(|idx| !self.tiles[*idx].step());
+        // if level_finished {}
+        // for tile_idx in self
+        //     .finished
+        //     .iter()
+        //     .enumerate()
+        //     // .filter(|(idx, finished)| **finished && self.playing[*idx])
+        //     .map(|(idx, _)| idx)
+        //     .collect::<Vec<_>>()
+        // {
+        //     let tile = &self.tiles[tile_idx];
+        // }
+        match &mut self.current_step {
+            TiledSimStep::InitialFill => {
+                for tile_idx in &self.tile_queue {
+                    self.tiles[*tile_idx].step();
+                }
+            }
+            TiledSimStep::FillGraph {
+                supergraph,
+                fill_state,
+                graph_elevs,
+                node_locations: _,
+            } => {
+                fill_state.step(supergraph.spill_graph(), graph_elevs);
+            }
+            _ => todo!(),
+        }
+
+        Ok(())
+    }
+
+    pub fn start_all(&mut self) {
+        for (idx, tile) in self.tiles.iter_mut().enumerate() {
+            self.tile_queue.push(idx);
+            tile.add_edge();
+        }
+    }
+
     pub fn seed_slope(&mut self, x: usize, y: usize) {
         let tile_idx = self.meta.xy_to_i(x / self.tile_size, y / self.tile_size);
         let tile = &mut self.tiles[tile_idx];
@@ -298,12 +242,12 @@ impl TiledSim {
         tile.add_edge();
         tile.seed_slope(&[tile.meta.xy_to_i(x % self.tile_size, y % self.tile_size)]);
     }
+
     #[must_use]
     pub fn tile_dem(
         dem: &[f64],
         meta: &GridMeta,
         tile_size: usize,
-        start_label: TLabel,
         gradients: &[Gradient],
     ) -> Self {
         let tiles_across = meta.width().div_ceil(tile_size);
@@ -317,6 +261,7 @@ impl TiledSim {
             tile_queue: Vec::new(),
             finished: vec![false; super_meta.size()],
             meta: super_meta,
+            current_step: TiledSimStep::InitialFill,
         };
         for tile_idx in 0..res.meta.size() {
             let (tile_x, tile_y) = res.meta.i_to_xy(tile_idx);
@@ -330,8 +275,11 @@ impl TiledSim {
             }
             res.tiles.push(Tile::new(
                 tdem,
-                start_label,
-                vec![0; tile_meta.size()],
+                vec![NOT_FILLED; tile_meta.size()],
+                TileCoord {
+                    x: tile_x,
+                    y: tile_y,
+                },
                 tile_meta,
                 min,
                 max,
@@ -346,8 +294,10 @@ impl TiledSim {
 pub struct Tile {
     dem: Vec<f64>,
     labels: Vec<TLabel>,
+    coords: TileCoord,
     meta: GridMeta,
     fillstate: ZhouFillState<f64>,
+    spill_graph: SpillGraph<f64>,
     pub min: f64,
     pub max: f64,
     pub gradient: Gradient,
@@ -357,19 +307,22 @@ impl Tile {
     #[must_use]
     pub fn new(
         dem: Vec<f64>,
-        start_label: TLabel,
         labels: Vec<TLabel>,
+        coords: TileCoord,
         meta: GridMeta,
         min: f64,
         max: f64,
         gradient: Gradient,
     ) -> Self {
-        let fillstate = ZhouFillState::new(start_label);
+        let fillstate = ZhouFillState::new(0);
+        let spill_graph = vec![HashMap::new(); 2 * meta.width() + 2 * meta.height()];
         Self {
             dem,
             labels,
+            coords,
             meta,
             fillstate,
+            spill_graph,
             min,
             max,
             gradient,
@@ -377,7 +330,7 @@ impl Tile {
     }
 
     pub fn add_edge(&mut self) {
-        self.fillstate.add_edge(&self.meta, &self.dem);
+        self.fillstate.add_edges(&self.meta, &self.dem);
     }
 
     pub fn seed_slope(&mut self, idxs: &[usize]) {
@@ -385,9 +338,40 @@ impl Tile {
     }
 
     pub fn step(&mut self) -> bool {
-        self.fillstate
-            .step(&self.meta, &mut self.dem, &mut self.labels, |_, _| {})
+        self.fillstate.step(
+            &self.meta,
+            &mut self.dem,
+            &mut self.labels,
+            |(my_label, n_label), (my_elev, n_elev)| {
+                watersheds_meet(my_label, n_label, my_elev, n_elev, &mut self.spill_graph);
+            },
+        )
     }
+
+    pub fn complete_fill(&mut self) -> FillData<f64> {
+        while self.step() {}
+        let edges_size = self.meta.width() * 2 + self.meta.height() * 2 + 4;
+        let mut dem_edges = Vec::with_capacity(edges_size);
+        let mut label_edges = Vec::with_capacity(edges_size);
+        for dir in 0..8 {
+            for label in self.meta.edge(self.labels(), dir) {
+                label_edges.push(*label);
+            }
+            for z in self.meta.edge(self.dem(), dir) {
+                dem_edges.push(*z);
+            }
+        }
+        let mut spill_graph = self.spill_graph.clone();
+        spill_graph.truncate(*self.fillstate.current_label() as usize);
+        FillData::new(
+            self.coords,
+            self.meta.clone(),
+            spill_graph,
+            dem_edges,
+            label_edges,
+        )
+    }
+
     #[must_use]
     pub fn dem(&self) -> &[f64] {
         &self.dem
@@ -396,6 +380,7 @@ impl Tile {
     pub fn meta(&self) -> &GridMeta {
         &self.meta
     }
+    #[must_use] 
     pub fn labels(&self) -> &[TLabel] {
         &self.labels
     }
@@ -416,6 +401,15 @@ impl WidgetRef for Tile {
             };
             buf[(x, y)].set_bg(Color::Rgb(color.r, color.g, color.b));
             buf[(x + 1, y)].set_bg(Color::Rgb(color.r, color.g, color.b));
+            Span::raw(format!("{l}")).render(
+                Rect {
+                    x,
+                    y,
+                    width: 2,
+                    height: 1,
+                },
+                buf,
+            );
             if (self.labels[idx] & ROI_FLAG) == ROI_FLAG {
                 buf[(x + 1, y)].set_bg(Color::Black);
             }
@@ -454,26 +448,3 @@ impl WidgetRef for Tile {
         }
     }
 }
-// struct Grid<'a> {
-//     ncols: usize,
-//     nrows: usize,
-//     tile_width: u16,
-//     tile_height: u16,
-//     tiles: Vec<Tile<'a>>,
-// }
-
-// impl WidgetRef for Grid<'_> {
-//     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
-//         let col_constraints = (0..self.ncols).map(|_| Constraint::Length(self.tile_width * 2));
-//         let row_constraints = (0..self.nrows).map(|_| Constraint::Length(self.tile_height));
-//         let horizontal = Layout::horizontal(col_constraints).spacing(2);
-//         let vertical = Layout::vertical(row_constraints).spacing(1);
-
-//         let rows = vertical.split(area);
-//         let rects = rows.iter().flat_map(|&row| horizontal.split(row).to_vec());
-
-//         for (rect, tile) in rects.zip(&self.tiles) {
-//             tile.render_ref(rect, buf);
-//         }
-//     }
-// }

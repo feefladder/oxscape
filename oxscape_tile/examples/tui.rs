@@ -22,60 +22,44 @@ impl WidgetRef for Tile {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let sim = &self.fillstate;
         let max = *self.dem.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
-        // mark all items in the priority queue with an O for Open
+        // mark all items in the priority queue with a P
         sim.priority_queue().iter().enumerate().for_each(|(i, c)| {
             let (x, y) = (c.x, c.y);
+            let tx = area.left() + u16::try_from(x * 2).unwrap();
+            let ty = area.top() + u16::try_from(y).unwrap();
             let color = self
                 .gradient
                 .eval_rational(sim.priority_queue().len() - i, sim.priority_queue().len());
-            buf[(
-                area.left() + u16::try_from(x * 2).unwrap(),
-                area.top() + u16::try_from(y).unwrap(),
-            )]
-                .set_char('O');
-            buf[(
-                area.left() + u16::try_from(x * 2 + 1).unwrap(),
-                area.top() + u16::try_from(y).unwrap(),
-            )]
-                .set_fg(Rgb(color.r, color.g, color.b));
+            buf[(tx, ty)].set_char('P');
+            buf[(tx, ty)].set_fg(Rgb(color.r, color.g, color.b));
         });
-        // mark all pit cells in the plain queue with a P
+        // mark all pit cells in the depression queue with a D
         sim.depression_queue().iter().for_each(|i| {
             let (x, y) = self.meta.i_to_xy(*i);
-            buf[(
-                area.left() + 1 + 2 * u16::try_from(x).unwrap(),
-                area.top() + u16::try_from(y).unwrap(),
-            )]
-                .set_char('P');
+            let tx = area.left() + u16::try_from(x * 2).unwrap();
+            let ty = area.top() + u16::try_from(y).unwrap();
+            buf[(tx, ty)].set_char('D');
         });
-        // mark all roi cells with an R
+        // mark all slope cells with an S
         sim.slope_queue().iter().for_each(|i| {
             let (x, y) = self.meta.i_to_xy(*i);
-            buf[(
-                area.left() + 1 + 2 * u16::try_from(x).unwrap(),
-                area.top() + u16::try_from(y).unwrap(),
-            )]
-                .set_char('R');
+            let tx = area.left() + u16::try_from(x * 2).unwrap();
+            let ty = area.top() + u16::try_from(y).unwrap();
+            buf[(tx, ty)].set_char('S');
         });
         for y in 0..self.meta.height() {
             for x in 0..self.meta.width() {
+                let tx = area.left() + u16::try_from(x * 2).unwrap();
+                let ty = area.top() + u16::try_from(y).unwrap();
                 let n = self.meta.xy_to_i(x, y);
                 let bg;
-                if self.labels[n] == 0 {
-                    bg = self.gradient.eval_continuous((max - self.dem[n]) / max);
-                } else {
-                    bg = colorous::PAIRED[self.labels[n] as usize % colorous::PAIRED.len()];
-                };
-                buf[(
-                    area.left() + u16::try_from(x * 2).unwrap(),
-                    area.top() + u16::try_from(y).unwrap(),
-                )]
-                    .set_bg(Rgb(bg.r, bg.g, bg.b));
-                buf[(
-                    area.left() + u16::try_from(x * 2 + 1).unwrap(),
-                    area.top() + u16::try_from(y).unwrap(),
-                )]
-                    .set_bg(Rgb(bg.r, bg.g, bg.b));
+                // if self.labels[n] == 0 {
+                bg = self.gradient.eval_continuous((max - self.dem[n]) / max);
+                // } else {
+                //     bg = colorous::PAIRED[self.labels[n] as usize % colorous::PAIRED.len()];
+                // };
+                buf[(tx, ty)].set_bg(Rgb(bg.r, bg.g, bg.b));
+                buf[(tx + 1, ty)].set_bg(Rgb(bg.r, bg.g, bg.b));
             }
         }
     }
@@ -146,7 +130,7 @@ const TILED: [[u32; 49]; 9] = [
 ];
 fn main() -> Result<()> {
     let mut terminal = ratatui::init();
-    let gradients = [colorous::RED_BLUE, colorous::BROWN_GREEN];
+    let gradients = [colorous::RED_BLUE]; //, colorous::BROWN_GREEN];
     let mut play: bool = false;
     let mut tiles = Vec::with_capacity(9);
     let meta = GridMeta::new(7, 7);
@@ -168,7 +152,7 @@ fn main() -> Result<()> {
     };
     for tile in &mut grid.tiles {
         let sim = &mut tile.fillstate;
-        sim.add_edge(&tile.meta, &tile.dem);
+        sim.add_edges(&tile.meta, &tile.dem);
     }
 
     loop {

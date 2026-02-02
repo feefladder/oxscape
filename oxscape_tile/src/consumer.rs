@@ -20,19 +20,17 @@
 //     right_label: Vec<TLabel>,
 // }
 
-use std::{collections::HashMap, fmt::DebugMap, mem, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
-use bytemuck::{AnyBitPattern, NoUninit, Pod, cast_slice, cast_slice_mut};
+use bytemuck::{AnyBitPattern, NoUninit, cast_slice, cast_slice_mut};
 use ordered_float::FloatCore;
 use oxscape::GridMeta;
 
 use crate::{
-    array_2d::{Array2D, BorrowedArray2D},
-    fill::{NextUp, ZhouFillState, fill_zhou2016, watersheds_meet},
+    fill::{NextUp, ZhouFillState, watersheds_meet},
     producer::{ConsumerMessage, FillData, ProducerMessage, SpillGraph, TileCoord},
-    tile::TileInfo,
 };
 
 #[async_trait]
@@ -43,6 +41,7 @@ pub trait TileServer<T> {
 }
 
 // ConsumerSpecifics struct
+#[allow(unused)]
 struct ConsumerSpecifics<ElevT> {
     tile_server: Arc<dyn TileServer<ElevT>>,
     spill_graph: SpillGraph<ElevT>,
@@ -52,9 +51,9 @@ struct ConsumerSpecifics<ElevT> {
 
 impl<ElevT> ConsumerSpecifics<ElevT>
 where
-    ElevT: FloatCore + NextUp + AnyBitPattern + NoUninit,
+    ElevT: FloatCore + NextUp + AnyBitPattern + NoUninit + Debug,
 {
-    async fn start(
+    pub async fn start(
         tile_server: Arc<dyn TileServer<ElevT>>,
         rx: Receiver<ProducerMessage<ElevT>>,
         tx: Sender<ConsumerMessage<ElevT>>,
@@ -76,15 +75,17 @@ where
                     // special closure that lets us determine what to do when
                     // watersheds meet. In that case, we note the spillover
                     // elevation LabelA->LabelB and decrease it when necessary
-                    let mut fill_state = ZhouFillState::new(2);
+                    let mut fill_state = ZhouFillState::new(0);
                     while fill_state.step(
-                        &info.meta(),
+                        info.meta(),
                         dem,
                         &mut labels,
                         |(my_label, n_label), (my_elev, n_elev)| {
                             watersheds_meet(my_label, n_label, my_elev, n_elev, &mut spill_graph)
                         },
                     ) {}
+                    // truncate the spill graph to the number of labels
+                    spill_graph.truncate(usize::try_from(*fill_state.current_label()).unwrap());
 
                     let mut label_edges =
                         Vec::with_capacity(2 * info.meta().width() + 2 * info.meta().height() + 4);
@@ -100,7 +101,7 @@ where
                     }
 
                     tile_server
-                        .save_to_cache(tc, "dem", cast_slice(&dem), info.meta())
+                        .save_to_cache(tc, "dem", cast_slice(dem), info.meta())
                         .await;
                     tile_server
                         .save_to_cache(tc, "labels", cast_slice(&labels), info.meta())
@@ -111,7 +112,6 @@ where
                         dem_edges,
                         label_edges,
                     };
-                    // TODO: apparently we may also need like edge info, but idk why... ah yes for edge tiles that connect to watershed 1 I guess?
                     tx.send(ConsumerMessage::InitialFillComplete(res))
                         .await
                         .unwrap();

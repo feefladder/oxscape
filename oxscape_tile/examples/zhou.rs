@@ -106,7 +106,7 @@ fn main() -> Result<()> {
         max,
         gradient: colorous::VIRIDIS,
     };
-    tile.fillstate.add_edge(&tile.meta, &tile.dem);
+    tile.fillstate.add_edges(&tile.meta, &tile.dem);
     let roi_idx = tile.meta.xy_to_i(2, 2);
     tile.fillstate.seed_slope(&mut tile.labels, &[roi_idx]);
     loop {

@@ -12,7 +12,7 @@ pub fn accum(order: &Order, params: &Params, accum: &mut [f64]) {
             sum += val * factor;
         }
         *v.cell() = sum;
-    })
+    });
 }
 
 pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {

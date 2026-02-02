@@ -42,7 +42,7 @@ pub fn add_uplift(meta: &GridMeta, params: &Params, dem: &mut [f64]) {
         .skip(1)
         .for_each(|row| {
             for h in row.iter_mut().take(meta.width() - 1).skip(1) {
-                *h += params.ueq * params.dt
+                *h += params.ueq * params.dt;
             }
         });
 }

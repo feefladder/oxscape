@@ -10,9 +10,8 @@ pub mod sflow;
 
 use std::env;
 use std::f64::consts::SQRT_2;
+use std::fmt::Debug;
 use std::ops::Range;
-
-use anyhow::anyhow;
 
 pub type Result<T> = anyhow::Result<T>;
 
@@ -131,9 +130,6 @@ impl GridMeta {
     /// # Panics
     ///
     /// if `idx>isize::MAX` or `shift()<0`
-    ///
-    ///
-    ///
     #[inline]
     #[must_use]
     pub fn shift(&self, idx: usize, dir: u8) -> usize {
@@ -224,7 +220,6 @@ impl GridMeta {
     pub fn edge<'a, T>(&'a self, data: &'a [T], dir: u8) -> EdgeIterator<'a, T> {
         let width = self.width();
         let end = self.size();
-        
         // 
         match dir {
             //                                   0..13=15-2
@@ -240,14 +235,14 @@ impl GridMeta {
             //                                    12=15-3..16
             6 => EdgeIterator::new(&data[end - width..end], 1),
             //                                      12=15-3..12=15-3
-            7 => EdgeIterator::new(&data[end - width..end - width + 1], 1),
+            7 => EdgeIterator::new(&data[(end - width)..=(end - width)], 1),
             _ => unreachable!(),
         }
     }
 
     /// Starting positions of the edges if they are collected into a single array
-    /// 
-    /// This can always be used as let edge = edges[skirt_range(dir)]
+    ///
+    /// This can always be used as let edge = edges[`skirt_range(dir)`]
     /// in
     /// ```
     /// # use oxscape::GridMeta;
@@ -289,9 +284,10 @@ impl GridMeta {
     /// 1     1     1     7
     /// 0 0 1 0     B 9 A 8
     /// ```
-    /// 
+    ///
+    #[must_use] 
     pub fn skirt_range(&self, dir: u8) -> Range<usize> {
-        self.skirt_idx(dir)..self.skirt_idx(dir+1)
+        self.skirt_idx(dir)..self.skirt_idx(dir + 1)
     }
 
     fn skirt_idx(&self, dir: u8) -> usize {
@@ -305,8 +301,46 @@ impl GridMeta {
             6 => self.height() + 1 + self.width() + 1 + self.height() + 1,
             7 => self.height() + 1 + self.width() + 1 + self.height() + 1 + self.width(),
             8 => self.height() + 1 + self.width() + 1 + self.height() + 1 + self.width() + 1,
-            d => panic!("Direction {d} out-of-bounds")
+            d => panic!("Direction {d} out-of-bounds"),
         }
+    }
+
+    /// Extract the edges of this tile into a new vec
+    ///
+    /// ```
+    /// # use oxscape::GridMeta;
+    /// let arr = [
+    ///    0, 1, 2, 3,
+    ///    4, 5, 6, 7,
+    ///    8, 9,10,11,
+    ///   12,13,14,15,
+    /// ];
+    /// let meta = GridMeta::new(4,4);
+    /// let edges = meta.edges(&arr);
+    /// assert_eq!(edges, &[
+    ///     0,4,8,12,
+    ///     0,
+    ///     0,1,2,3,
+    ///     3,
+    ///     3,7,11,15,
+    ///     15,
+    ///     12,13,14,15,
+    ///     12,
+    /// ]);
+    /// for dir in 0..8 {
+    ///     for (edge_cell, skirt_cell) in meta.edge(&arr,dir).zip(&edges[meta.skirt_range(dir)]) {
+    ///         assert_eq!(edge_cell, skirt_cell);
+    ///     }
+    /// }
+    /// ```
+    pub fn edges<T: Clone>(&self, data: &[T]) -> Vec<T> {
+        let mut skirt = Vec::with_capacity(self.skirt_idx(8));
+        for dir in 0..8 {
+            for cell in self.edge(data, dir) {
+                skirt.push(cell.clone());
+            }
+        }
+        skirt
     }
 
     /// Checks whether the given values fit in the grid
@@ -343,6 +377,19 @@ impl GridMeta {
     #[must_use]
     pub const fn xy_to_i(&self, x: usize, y: usize) -> usize {
         x + y * self.width
+    }
+
+    /// Quick-and-dirty printing of arrays
+    pub fn print<T: Debug>(&self, data: &[T]) {
+        println!("[");
+        for row in data.chunks(self.width()) {
+            print!("  ");
+            for c in row {
+                print!("{:?},", *c);
+            }
+            println!();
+        }
+        println!("]");
     }
 }
 
@@ -450,5 +497,41 @@ mod test {
         assert_eq!(meta.edge(&arr, 5).map(|v|*v).collect::<Vec<_>>(), &[15]);
         assert_eq!(meta.edge(&arr, 6).map(|v|*v).collect::<Vec<_>>(), &[12,13,14,15]);
         assert_eq!(meta.edge(&arr, 7).map(|v|*v).collect::<Vec<_>>(), &[12]);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_skirt() {
+        let arr = vec![
+             0, 1, 2, 3,
+             4, 5, 6, 7,
+             8, 9,10,11,
+            12,13,14,15
+        ];
+        let meta = GridMeta::new(4, 4);
+        let mut edges = Vec::with_capacity(meta.skirt_range(7).end);
+        for dir in 0..8 {
+            for edge_cell in meta.edge(&arr, dir) {
+                edges.push(*edge_cell);
+            }
+        }
+        assert_eq!(edges, &[
+            0,4,8,12,
+            0,
+            0,1,2,3,
+            3,
+            3,7,11,15,
+            15,
+            12,13,14,15,
+            12
+        ]);
+        assert_eq!(&edges[meta.skirt_range(0)], &[0,4,8,12]);
+        assert_eq!(&edges[meta.skirt_range(1)], &[0]);
+        assert_eq!(&edges[meta.skirt_range(2)], &[0,1,2,3]);
+        assert_eq!(&edges[meta.skirt_range(3)], &[3]);
+        assert_eq!(&edges[meta.skirt_range(4)], &[3,7,11,15]);
+        assert_eq!(&edges[meta.skirt_range(5)], &[15]);
+        assert_eq!(&edges[meta.skirt_range(6)], &[12,13,14,15]);
+        assert_eq!(&edges[meta.skirt_range(7)], &[12]);
     }
 }

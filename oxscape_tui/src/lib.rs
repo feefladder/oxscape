@@ -1,10 +1,8 @@
 #![warn(clippy::pedantic)]
 use color_eyre::Result;
-use colorous::Gradient;
 use oxscape::GridMeta;
-use oxscape_tile::fill::fill_zhou2016;
+use oxscape_tile::fill::{NOT_FILLED, fill_zhou2016};
 use rand::prelude::*;
-use ratatui::widgets::WidgetRef;
 
 pub mod sim;
 pub mod tile;
@@ -40,18 +38,6 @@ pub fn random_dem(dem: &mut [f64], meta: &GridMeta, seed: u64) -> Result<()> {
                 row[i] = rng.random_range(0.0..1.0);
             }
         });
-    fill_zhou2016(meta, dem, &mut vec![0; dem.len()]);
+    fill_zhou2016(meta, dem, &mut vec![NOT_FILLED; dem.len()]);
     Ok(())
-}
-
-/// why is this a trait?
-pub trait Simulation: Sized + WidgetRef {
-    /// Initialize the simulation to the given size
-    fn init(width: usize, height: usize, gradient: Gradient) -> Result<Self>;
-    /// Resize the simulation, maybe also restarts it
-    fn resize(&mut self, width: usize, height: usize) -> Result<()>;
-    /// Restart the simulation
-    fn restart(&mut self) -> Result<()>;
-    /// Do a single simulation step
-    fn step(&mut self) -> Result<()>;
 }

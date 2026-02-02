@@ -1,6 +1,6 @@
 use std::collections::{BinaryHeap, HashMap, VecDeque};
+use std::fmt::Debug;
 
-use num_traits::Float;
 use ordered_float::FloatCore;
 use oxscape::GridMeta;
 
@@ -13,6 +13,7 @@ use crate::{Cell, TLabel, producer::SpillGraph};
 /// As such, most operations on a u32 should work,
 /// unless there are more than 2147483647 different labels
 pub const ROI_FLAG: TLabel = 1 << (std::mem::size_of::<TLabel>() * 8 - 1);
+pub const NOT_FILLED: TLabel = ROI_FLAG - 1;
 
 pub type Graph<T> = Vec<HashMap<TLabel, T>>;
 
@@ -80,7 +81,7 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
     /// add all edge cells to the priority queue
     ///
     /// The priority queue keeps track of heights, so we also need dem
-    pub fn add_edge(&mut self, meta: &GridMeta, dem: &[T]) {
+    pub fn add_edges(&mut self, meta: &GridMeta, dem: &[T]) {
         // add the edges
         for x in 0..meta.width() {
             self.priority_queue.push(Cell {
@@ -134,7 +135,7 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
 
                 watersheds_meet((labels[di], labels[ndi]), (dem[di], dem[ndi]));
 
-                if labels[ndi] != 0 {
+                if labels[ndi] != NOT_FILLED {
                     continue;
                 }
 
@@ -144,7 +145,7 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
                     self.slope_queue.push_back(ndi); // slope cell
                 } else {
                     // depression cell
-                    dem[ndi] = dem[di].next_up(); // fill
+                    dem[ndi] = dem[di]; //.next_up(); // fill
                     self.depression_queue.push_back(ndi); // add
                 }
             }
@@ -163,7 +164,7 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
                 watersheds_meet((labels[si], labels[nsi]), (dem[si], dem[nsi]));
 
                 // check if already processed
-                if labels[nsi] != 0 {
+                if labels[nsi] != NOT_FILLED {
                     continue;
                 }
 
@@ -181,7 +182,7 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
                         let Some(nnsi) = meta.try_shift(nsx, nsy, slope_n_dir) else {
                             continue;
                         };
-                        if labels[nnsi] != 0 && dem[nnsi] < dem[nsi] {
+                        if labels[nnsi] != NOT_FILLED && dem[nnsi] < dem[nsi] {
                             is_boundary = false;
                             break;
                         }
@@ -201,21 +202,21 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
         } else if let Some(c) = self.priority_queue.pop() {
             let n = meta.xy_to_i(c.x, c.y);
             // assign a label if we don't already have one
-            if labels[n] == 0 {
+            if labels[n] == NOT_FILLED {
                 let mut neighbour = false;
                 // otherwise, we can take a label from a neighbouring lower cell
                 for dir in 0..8 {
                     let Some(nn) = meta.try_shift(c.x, c.y, dir) else {
                         continue;
                     };
-                    if labels[nn] != 0 && dem[nn] < dem[n] {
+                    if labels[nn] != NOT_FILLED && dem[nn] < dem[n] {
                         labels[n] = labels[nn];
                         neighbour = true;
                     }
                 }
                 if !neighbour {
+                    labels[n] = self.current_label;
                     self.current_label += 1;
-                    labels[n] = self.current_label
                 }
             }
             for dir in 0..8 {
@@ -225,13 +226,13 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
 
                 watersheds_meet((labels[n], labels[ni]), (dem[n], dem[ni]));
 
-                if labels[ni] != 0 {
+                if labels[ni] != NOT_FILLED {
                     continue;
                 }
                 labels[ni] = labels[n];
                 if dem[ni] < dem[n] {
                     // depression cell
-                    dem[ni] = dem[n].next_up();
+                    dem[ni] = dem[n]; //.next_up();
                     self.depression_queue.push_back(ni);
                 } else {
                     self.slope_queue.push_back(ni);
@@ -246,19 +247,19 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
 
 /// Fill a dem using the Zhou filling algorithm
 pub fn fill_zhou2016<T: FloatCore + NextUp>(meta: &GridMeta, dem: &mut [T], labels: &mut [TLabel]) {
-    let mut state = ZhouFillState::new(2);
-    state.add_edge(meta, dem);
+    let mut state = ZhouFillState::new(0);
+    state.add_edges(meta, dem);
     while state.step(meta, dem, labels, |_, _| {}) {}
 }
 
-pub fn watersheds_meet<T: FloatCore>(
+pub fn watersheds_meet<T: FloatCore + Debug>(
     mut my_label: TLabel,
     mut n_label: TLabel,
     my_elev: T,
     n_elev: T,
     spill_graph: &mut SpillGraph<T>,
 ) {
-    if n_label == 0 {
+    if n_label == NOT_FILLED {
         return;
     }
     if my_label == n_label {
@@ -271,12 +272,16 @@ pub fn watersheds_meet<T: FloatCore>(
     if my_label > n_label {
         std::mem::swap(&mut my_label, &mut n_label);
     }
+
     // insert if new or lower than existing
-    if spill_graph[my_label as usize].is_empty() {
-        spill_graph[my_label as usize].insert(n_label, elev_over);
-    } else if elev_over < spill_graph[my_label as usize][&n_label] {
-        *spill_graph[my_label as usize].get_mut(&n_label).unwrap() = elev_over;
-    }
+    spill_graph[my_label as usize]
+        .entry(n_label)
+        .and_modify(|elev| {
+            if *elev > elev_over {
+                *elev = elev_over
+            }
+        })
+        .or_insert(elev_over);
 }
 
 #[cfg(test)]
@@ -285,7 +290,7 @@ mod test {
 
     use crate::{
         TLabel,
-        fill::{ROI_FLAG, fill_zhou2016},
+        fill::{NOT_FILLED, ROI_FLAG, ZhouFillState, fill_zhou2016},
     };
 
     #[test]
@@ -298,7 +303,7 @@ mod test {
             16,17, 8,16,15, 7, 5,
             19,18,19,18,17,15,14,
         ].map(|v| v as f64);
-        let mut labels = vec![0;dem.len()];
+        let mut labels = vec![NOT_FILLED;dem.len()];
         let expected = [
             15.0,15.0,14.0,15.0,12.0, 6.0,12.0,
             14.0,13.0,11.0f64.next_up(),12.0,15.0,17.0,15.0,
@@ -319,58 +324,170 @@ mod test {
     }
 
     #[test]
+    #[rustfmt::skip]
+    fn test_tiled_third() {
+        let meta = GridMeta::new(7, 7);
+        let mut dem = [
+            3,4,4,5,5,6,7,
+            6,6,5,3,4,6,8,
+            6,6,5,3,4,5,6,
+            6,5,4,4,4,4,3,
+            6,5,4,3,3,4,4,
+            7,6,4,2,3,4,4,
+            8,7,4,2,3,4,4,
+        ].map(|v| v as f32);
+        let mut labels = vec![NOT_FILLED;meta.size()];
+        fill_zhou2016(&meta, &mut dem, &mut labels);
+        assert_eq!(&dem, &[
+        //  0 1 2 3 4 5 6
+            3,4,4,5,5,6,7,
+            6,6,5,4,4,6,8,//6,6,5,4,...
+            6,6,5,4,4,5,6,//6,6,5,4,...
+            6,5,4,4,4,4,3,
+            6,5,4,3,3,4,4,
+            7,6,4,2,3,4,4,
+            8,7,4,2,3,4,4,
+        ].map(|v| v as f32));
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_tiled_fifth() {
+        let meta = GridMeta::new(7, 7);
+        let mut dem = [
+            8,7,5,5,4,4,6,
+            5,4,3,4,3,4,7,
+            4,3,3,4,2,4,7,
+            5,4,4,5,3,4,7,
+            7,6,5,5,4,5,7,
+            8,7,5,5,4,5,7,
+            7,7,6,6,5,5,6,
+        ].map(|v| v as f32);
+        let mut labels = vec![NOT_FILLED;meta.size()];
+        fill_zhou2016(&meta, &mut dem, &mut labels);
+        assert_eq!(&dem, &[
+        //  0 1 2 3 4 5 6
+            8,7,5,5,4,4,6,
+            5,4,4,4,4,4,7,
+            4,4,4,4,4,4,7,
+            5,4,4,5,4,4,7,
+            7,6,5,5,4,5,7,
+            8,7,5,5,4,5,7,
+            7,7,6,6,5,5,6,
+        ].map(|v| v as f32));
+    }
+
+    #[test]
+    #[rustfmt::skip]
     fn tiled_dem() {
         // the sample tiled dem from Barnes
         let tiled = [
             [
-                9, 9, 7, 6, 7, 6, 4, 6, 7, 6, 5, 5, 4, 4, 3, 5, 5, 4, 3, 3, 3, 1, 3, 4, 4, 3, 2, 2,
-                5, 4, 4, 4, 4, 4, 4, 6, 4, 3, 3, 4, 5, 6, 7, 4, 3, 2, 4, 5, 7,
+            //  0 1 2 3 4 5 6
+                9,9,7,6,7,6,4,
+                6,7,6,5,5,4,4,
+                3,5,5,4,3,3,3,
+                1,3,4,4,3,2,2,
+                5,4,4,4,4,4,4,
+                6,4,3,3,4,5,6,
+                7,4,3,2,4,5,7,
             ],
             [
-                3, 2, 3, 4, 2, 1, 2, 4, 4, 4, 5, 3, 3, 5, 4, 4, 4, 5, 4, 5, 6, 3, 4, 4, 5, 6, 6, 6,
-                5, 6, 6, 7, 4, 4, 6, 7, 8, 8, 6, 3, 4, 6, 9, 9, 8, 5, 3, 4, 6,
+                3,2,3,4,2,1,2,
+                4,4,4,5,3,3,5,
+                4,4,4,5,4,5,6,
+                3,4,4,5,6,6,6,
+                5,6,6,7,4,4,6,
+                7,8,8,6,3,4,6,
+                9,9,8,5,3,4,6,
             ],
             [
-                3, 4, 4, 5, 5, 6, 7, 6, 6, 5, 3, 4, 6, 8, 6, 6, 5, 3, 4, 5, 6, 6, 5, 4, 4, 4, 4, 3,
-                6, 5, 4, 3, 3, 4, 4, 7, 6, 4, 2, 3, 4, 4, 8, 7, 4, 2, 3, 4, 4,
+                3,4,4,5,5,6,7,
+                6,6,5,3,4,6,8,
+                6,6,5,3,4,5,6,
+                6,5,4,4,4,4,3,
+                6,5,4,3,3,4,4,
+                7,6,4,2,3,4,4,
+                8,7,4,2,3,4,4,
             ],
             [
-                8, 6, 5, 5, 7, 6, 6, 6, 7, 8, 7, 8, 7, 6, 5, 7, 8, 8, 7, 7, 6, 6, 6, 6, 6, 6, 5, 5,
-                4, 4, 4, 4, 6, 7, 8, 4, 4, 4, 5, 6, 7, 7, 7, 5, 5, 7, 7, 5, 4,
+                8,6,5,5,7,6,6,
+                6,7,8,7,8,7,6,
+                5,7,8,8,7,7,6,
+                6,6,6,6,6,5,5,
+                4,4,4,4,6,7,8,
+                4,4,4,5,6,7,7,
+                7,5,5,7,7,5,4,
             ],
             [
-                8, 7, 5, 5, 4, 4, 6, 5, 4, 3, 4, 3, 4, 7, 4, 3, 3, 4, 2, 4, 7, 5, 4, 4, 5, 3, 4, 7,
-                7, 6, 5, 5, 4, 5, 7, 8, 7, 5, 5, 4, 5, 7, 7, 7, 6, 6, 5, 5, 6,
+                8,7,5,5,4,4,6,
+                5,4,3,4,3,4,7,
+                4,3,3,4,2,4,7,
+                5,4,4,5,3,4,7,
+                7,6,5,5,4,5,7,
+                8,7,5,5,4,5,7,
+                7,7,6,6,5,5,6,
             ],
             [
-                8, 8, 6, 3, 3, 4, 6, 7, 7, 6, 3, 4, 5, 6, 7, 7, 6, 3, 5, 6, 7, 6, 6, 6, 6, 5, 6, 8,
-                6, 7, 8, 7, 7, 6, 6, 6, 7, 7, 7, 6, 5, 4, 6, 5, 5, 5, 4, 4, 3,
+                8,8,6,3,3,4,6,
+                7,7,6,3,4,5,6,
+                7,7,6,3,5,6,7,
+                6,6,6,6,5,6,8,
+                6,7,8,7,7,6,6,
+                6,7,7,7,6,5,4,
+                6,5,5,5,4,4,3,
             ],
             [
-                8, 8, 8, 7, 5, 3, 3, 8, 8, 7, 7, 5, 4, 4, 8, 7, 6, 6, 6, 5, 5, 9, 7, 5, 4, 6, 7, 7,
-                8, 6, 5, 4, 6, 7, 7, 4, 4, 4, 5, 5, 6, 6, 0, 2, 3, 5, 5, 6, 6,
+                8,8,8,7,5,3,3,
+                8,8,7,7,5,4,4,
+                8,7,6,6,6,5,5,
+                9,7,5,4,6,7,7,
+                8,6,5,4,6,7,7,
+                4,4,4,5,5,6,6,
+                0,2,3,5,5,6,6,
             ],
             [
-                7, 8, 8, 8, 7, 5, 4, 7, 8, 8, 8, 7, 5, 4, 7, 7, 7, 7, 6, 6, 6, 6, 5, 4, 4, 5, 6, 6,
-                6, 5, 5, 6, 4, 5, 6, 6, 6, 5, 6, 4, 4, 6, 4, 6, 6, 3, 3, 4, 5,
+                7,8,8,8,7,5,4,
+                7,8,8,8,7,5,4,
+                7,7,7,7,6,6,6,
+                6,5,4,4,5,6,6,
+                6,5,5,6,4,5,6,
+                6,6,5,6,4,4,6,
+                4,6,6,3,3,4,5,
             ],
             [
-                4, 4, 3, 2, 1, 2, 4, 5, 4, 2, 1, 2, 3, 4, 5, 4, 3, 2, 3, 5, 5, 6, 5, 5, 3, 5, 7, 8,
-                6, 5, 5, 6, 6, 6, 6, 5, 5, 5, 8, 7, 5, 3, 3, 3, 5, 9, 7, 4, 1,
+                4,4,3,2,1,2,4,
+                5,4,2,1,2,3,4,
+                5,4,3,2,3,5,5,
+                6,5,5,3,5,7,8,
+                6,5,5,6,6,6,6,
+                5,5,5,8,7,5,3,
+                3,3,5,9,7,4,1,
             ],
         ];
         let filled = [
             tiled[0],
             tiled[1],
             [
-                3, 4, 4, 5, 5, 6, 7, 6, 6, 5, 4, 4, 6, 8, 6, 6, 5, 4, 4, 5, 6, 6, 5, 4, 4, 4, 4, 3,
-                6, 5, 4, 3, 3, 4, 4, 7, 6, 4, 2, 3, 4, 4, 8, 7, 4, 2, 3, 4, 4,
+            //  0 1 2 3 4 5 6
+                3,4,4,5,5,6,7,
+                6,6,5,4,4,6,8,//6,6,5,4,...
+                6,6,5,4,4,5,6,//6,6,5,4,...
+                6,5,4,4,4,4,3,
+                6,5,4,3,3,4,4,
+                7,6,4,2,3,4,4,
+                8,7,4,2,3,4,4,
             ],
             tiled[3],
             [
-                //  0 1 2 3 4 5 6
-                8, 7, 5, 5, 4, 4, 6, 5, 4, 4, 4, 4, 4, 7, 4, 4, 4, 4, 4, 4, 7, 5, 4, 4, 5, 4, 4, 7,
-                7, 6, 5, 5, 4, 5, 7, 8, 7, 5, 5, 4, 5, 7, 7, 7, 6, 6, 5, 5, 6,
+            //  0 1 2 3 4 5 6
+                8,7,5,5,4,4,6,
+                5,4,4,4,4,4,7,
+                4,4,4,4,4,4,7,
+                5,4,4,5,4,4,7,
+                7,6,5,5,4,5,7,
+                8,7,5,5,4,5,7,
+                7,7,6,6,5,5,6,
             ],
             tiled[5],
             tiled[6],
@@ -379,50 +496,100 @@ mod test {
         ];
         let sheds = [
             [
-                // 0 1 2 3 4 5 6
-                3, 3, 5, 5, 5, 5, 5, 3, 3, 5, 5, 5, 5, 5, 3, 3, 3, 5, 5, 5, 5, 3, 3, 3, 5, 5, 5, 5,
-                3, 3, 4, 4, 5, 5, 5, 4, 4, 4, 4, 4, 4, 5, 4, 4, 4, 4, 4, 4, 4,
+            //  0 1 2 3 4 5 6
+                3,3,3,5,5,5,6,
+                3,3,3,5,5,5,5,
+                3,3,3,5,5,5,5,
+                3,3,3,5,5,5,5,
+                3,3,3,4,4,5,5,
+                3,4,4,4,4,4,4,
+                3,4,4,4,4,4,4
             ],
             [
-                4, 4, 4, 3, 3, 3, 3, 4, 4, 4, 3, 3, 3, 3, 6, 6, 4, 3, 3, 3, 3, 6, 6, 4, 4, 3, 3, 5,
-                6, 6, 4, 5, 5, 5, 5, 6, 6, 5, 5, 5, 5, 5, 6, 6, 5, 5, 5, 5, 5,
+                3,3,3,5,5,5,6,
+                3,3,3,5,5,5,5,
+                3,3,3,5,5,5,5,
+                3,3,3,5,5,5,5,
+                3,3,3,4,4,5,5,
+                3,4,4,4,4,4,4,
+                3,4,4,4,4,4,4
             ],
             [
-                4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 3, 3, 4, 4, 4, 5, 5, 3, 3, 3, 3, 3, 3, 5,
-                3, 3, 3, 3, 3, 3, 5, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+                4,4,4,4,4,4,4,
+                4,4,4,4,4,4,5,
+                3,3,4,4,4,5,5,
+                3,3,3,3,3,3,5,
+                3,3,3,3,3,3,5,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
             ],
             [
-                7, 5, 5, 5, 5, 8, 8, 7, 5, 5, 5, 5, 8, 8, 7, 7, 4, 4, 6, 6, 6, 4, 4, 4, 4, 4, 6, 6,
-                4, 4, 4, 4, 4, 6, 6, 4, 4, 4, 4, 4, 3, 3, 4, 4, 4, 4, 4, 3, 3,
+                7,5,5,5,5,8,8,
+                7,5,5,5,5,8,8,
+                7,7,4,4,6,6,6,
+                4,4,4,4,4,6,6,
+                4,4,4,4,4,6,6,
+                4,4,4,4,4,3,3,
+                4,4,4,4,4,3,3,
             ],
             [
-                3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-                3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
             ],
             [
-                3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4,
-                3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,4,
+                3,3,3,3,3,4,4,
+                4,4,4,4,4,4,4,
+                4,4,4,4,4,4,4,
             ],
             [
-                3, 3, 4, 4, 4, 4, 4, 3, 3, 3, 4, 4, 4, 4, 3, 3, 3, 3, 3, 4, 4, 3, 3, 3, 3, 3, 4, 4,
-                3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+                3,3,4,4,4,4,4,
+                3,3,3,4,4,4,4,
+                3,3,3,3,3,4,4,
+                3,3,3,3,3,4,4,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
             ],
             [
-                3, 3, 3, 4, 4, 4, 4, 3, 3, 3, 3, 4, 4, 4, 3, 3, 3, 3, 3, 4, 4, 3, 3, 3, 3, 3, 3, 3,
-                3, 3, 3, 3, 3, 3, 3, 5, 5, 3, 3, 3, 3, 3, 5, 5, 3, 3, 3, 3, 3,
+                3,3,3,4,4,4,4,
+                3,3,3,3,4,4,4,
+                3,3,3,3,3,4,4,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
+                5,5,3,3,3,3,3,
+                5,5,3,3,3,3,3,
             ],
             [
-                3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-                3, 3, 3, 3, 3, 4, 4, 5, 5, 5, 5, 4, 4, 4, 5, 5, 5, 5, 4, 4, 4,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,3,3,
+                3,3,3,3,3,4,4,
+                5,5,5,5,4,4,4,
+                5,5,5,5,4,4,4,
             ],
         ];
         let meta = GridMeta::new(7, 7);
-        let mut labels = [0; 49];
+        let mut labels = [NOT_FILLED; 49];
         for (idx, tile) in tiled.iter().enumerate() {
-            let mut dem = tile.map(|v| v as f32);
-            fill_zhou2016(&meta, &mut dem, &mut labels);
-            println!("{idx}: labels:\n{labels:?}\ndem:{dem:?}");
-            assert_eq!(dem, filled[idx].map(|v| v as f32));
+            let mut dem = tile.map(|v| v as f64);
+            let mut fs = ZhouFillState::new(2);
+            fs.add_edges(&meta, &dem);
+            while fs.step(&meta, &mut dem, &mut labels, |_,_|{}){}
+            println!("dem:");
+            meta.print(&dem.map(|v| v as u32));
+            assert_eq!(&dem, &filled[idx].map(|v| v as f64));
+            println!("labels:");
+            meta.print(&labels);
             assert_eq!(labels, sheds[idx]);
         }
     }
