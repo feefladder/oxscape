@@ -40,6 +40,12 @@ impl<T: FloatCore + TotalOrder> GraphFillState<T> {
     /// possible direction. The lowest-path elevation for a cell is noted in graph_elevs
     pub fn step(&mut self, spill_graph: &[HashMap<TLabel, T>], graph_elevs: &mut [T]) -> bool {
         if let Some(cell) = self.priority_queue.pop() {
+            let my_vertex_num = cell.label as usize;
+            if self.processed[my_vertex_num] {
+                return true;
+            }
+            graph_elevs[my_vertex_num] = cell.spill_elev;
+            self.processed[my_vertex_num] = true;
             for (&label, n_elev) in &spill_graph[cell.label() as usize] {
                 let l: usize = label.try_into().unwrap();
                 // if we're re-visiting the cell, it has already flowed to the edge
@@ -51,8 +57,8 @@ impl<T: FloatCore + TotalOrder> GraphFillState<T> {
                 // we don't need to modify spill_graph: the spill elevation only
                 // works for this watershed. Also we'll only visit every cell once
                 let spill_elev = cell.spill_elev().max(*n_elev);
-                graph_elevs[l] = spill_elev;
-                self.processed[l] = true;
+                // graph_elevs[l] = spill_elev;
+                // self.processed[l] = true;
                 // add cell to the priority queue
                 self.priority_queue.push(GraphCell::new(label, spill_elev));
             }
@@ -109,9 +115,9 @@ mod test {
             HashMap::from([(2, 0.5)]),
             HashMap::new(),
         ];
-        let mut elevs = vec![0.0; 3];
+        let mut elevs = vec![f64::MIN; 3];
         fill_graph(&graph, &mut elevs);
-        assert_eq!(&elevs, &[0.0, 1.0, 1.0]);
+        assert_eq!(&elevs, &[f64::MIN, 1.0, 1.0]);
     }
 
     #[test]
@@ -122,9 +128,9 @@ mod test {
             HashMap::from([(2, 0.5)]),
             HashMap::new(),
         ];
-        let mut elevs = vec![0.0; 3];
+        let mut elevs = vec![f64::MIN; 3];
         fill_graph(&graph, &mut elevs);
-        assert_eq!(&elevs, &[0.0, 0.5, 0.5]);
+        assert_eq!(&elevs, &[f64::MIN, 0.5, 0.5]);
     }
 
     #[test]
@@ -135,8 +141,34 @@ mod test {
             HashMap::from([(2, 1.0)]),
             HashMap::new(),
         ];
-        let mut elevs = vec![0.0; 3];
+        let mut elevs = vec![f64::MIN; 3];
         fill_graph(&graph, &mut elevs);
-        assert_eq!(&elevs, &[0.0, 0.5, 1.0]);
+        assert_eq!(&elevs, &[f64::MIN, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn test_fill_graph_square() {
+        let graph = vec![
+            HashMap::from([(1, 0.5), (2, 1.0)]),
+            HashMap::from([(0, 0.5), (3, 1.0)]),
+            HashMap::from([(0, 1.0), (3, 1.5)]),
+            HashMap::from([(1, 1.0), (2, 1.5)]),
+        ];
+        let mut elevs = vec![f64::MIN; 4];
+        fill_graph(&graph, &mut elevs);
+        assert_eq!(&elevs, &[f64::MIN, 0.5, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_fill_graph_tet() {
+        let graph = vec![
+            HashMap::from([(1, 0.5), (2, 1.0), (3, 0.0)]),
+            HashMap::from([(0, 0.5), (3, 1.0)]),
+            HashMap::from([(0, 1.0), (3, 1.5)]),
+            HashMap::from([(1, 0.5), (2, 1.0)]),
+        ];
+        let mut elevs = vec![f64::MIN; 4];
+        fill_graph(&graph, &mut elevs);
+        assert_eq!(&elevs, &[f64::MIN, 0.5, 1.0, 0.0]);
     }
 }

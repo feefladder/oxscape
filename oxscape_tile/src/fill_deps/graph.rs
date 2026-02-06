@@ -87,19 +87,34 @@ impl<T: Copy + FloatCore + Debug> SuperGraph<T> {
                     let (n_labels, n_elevs) =
                         fill_grid.edge(&n_coord, GridMeta::rev(dir as usize) as u8);
                     for edge_idx in 0..my_labels.len() {
-                        let my_label = my_labels[edge_idx] + idx_offsets[my_coord].0;
-                        let n_label = n_labels[edge_idx] + idx_offsets[&n_coord].0;
-                        if my_label == n_label {
-                            panic!("found a duplicate somehow");
-                            // continue;
-                        }
-                        let spill_elev = my_elevs[edge_idx].max(n_elevs[edge_idx]);
-                        if !spill_graph[my_label as usize].contains_key(&n_label) {
-                            spill_graph[my_label as usize].insert(n_label, spill_elev);
-                            spill_graph[n_label as usize].insert(my_label, spill_elev);
-                        } else if spill_graph[my_label as usize][&n_label] > spill_elev {
-                            spill_graph[my_label as usize].insert(n_label, spill_elev);
-                            spill_graph[n_label as usize].insert(my_label, spill_elev);
+                        for n_offset in -1..=1 {
+                            let Ok(n_edge_idx) = usize::try_from(edge_idx as isize + n_offset)
+                            else {
+                                continue;
+                            };
+                            if n_edge_idx >= n_labels.len() {
+                                continue;
+                            }
+                            let my_label = my_labels[edge_idx] + idx_offsets[my_coord].0;
+                            let n_label = n_labels[n_edge_idx]
+                                + idx_offsets
+                                    .get(&n_coord)
+                                    .expect(&format!(
+                                        "no offset for {n_coord:?}, offsets: {idx_offsets:?}"
+                                    ))
+                                    .0;
+                            if my_label == n_label {
+                                panic!("found a duplicate somehow");
+                                // continue;
+                            }
+                            let spill_elev = my_elevs[edge_idx].max(n_elevs[n_edge_idx]);
+                            if !spill_graph[my_label as usize].contains_key(&n_label) {
+                                spill_graph[my_label as usize].insert(n_label, spill_elev);
+                                spill_graph[n_label as usize].insert(my_label, spill_elev);
+                            } else if spill_graph[my_label as usize][&n_label] > spill_elev {
+                                spill_graph[my_label as usize].insert(n_label, spill_elev);
+                                spill_graph[n_label as usize].insert(my_label, spill_elev);
+                            }
                         }
                     }
                 } else {

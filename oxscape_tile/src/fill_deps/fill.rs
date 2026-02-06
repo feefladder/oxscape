@@ -359,9 +359,15 @@ pub fn raise_catchments<T: PartialOrd + Clone>(
 mod test {
     use core::f64;
 
+    use itertools::Itertools;
     use oxscape::GridMeta;
 
-    use crate::fill_deps::{fill_graph::fill_graph, graph::SuperGraph, grid::VecFillGrid};
+    use crate::fill_deps::{
+        GraphCell,
+        fill_graph::{GraphFillState, fill_graph},
+        graph::SuperGraph,
+        grid::VecFillGrid,
+    };
 
     use super::*;
 
@@ -393,6 +399,25 @@ mod test {
         let ten = 10;
         let ten_flag = ten | ROI_FLAG;
         assert_eq!(ten, ten_flag & !ROI_FLAG);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_raise_catchments() {
+        let mut dem = [
+            0,1,
+            2,3
+        ].map(|v| v as f32);
+        let labels = [
+            0,0,
+            1,1,
+        ];
+        let spill_elevs = [1,2].map(|v| v as f32);
+        raise_catchments(&mut dem, &labels, &spill_elevs);
+        assert_eq!(&dem, &[
+            1,1,
+            2,3
+        ].map(|v| v as f32));
     }
 
     #[test]
@@ -834,37 +859,66 @@ mod test {
             HashMap::from([(25,6.0)]),
             HashMap::from([         (25,5.0)]),
         ]);
+        supergraph = supergraph.connect_edges(&grid);
+        for ((idx,graph), expected) in supergraph.spill_graph().iter().enumerate().zip(vec![
+            HashMap::from([(1,1.0),(3,4.0),        (4,1.0),(5,2.0),(8,4.0),(9,3.0),(10,3.0),(12,4.0),(13,8.0),(15,5.0),(18,6.0),(19,3.0),(20,0.0),(22,3.0),(24,4.0),(25,4.0),(26,1.0),(27,3.0)]),//0
+            //
+            HashMap::from([(0,1.0),(2,4.0),(3,4.0),  (13,7.0)]),//1
+            HashMap::from([        (1,4.0),        (3,4.0),(4,9.0),(7,6.0),(13,5.0),(16,6.0),(17,8.0)]),//2    ||
+            HashMap::from([        (0,4.0),(1,4.0),(2,4.0),        (5,4.0),(7,3.0)]),//3    ||
+            //                                               |      ||
+            HashMap::from([(5,4.0),(6,5.0),(7,6.0),(0,1.0),(2,9.0),(8,6.0),(9,3.0),(17,9.0),                        (16,9.0)]),//4
+            HashMap::from([(4,4.0),/* |        | */(7,4.0),(0,2.0),(3,4.0)]),//5
+            HashMap::from([        (4,5.0),(8,6.0),(17,4.0),(18,8.0)]),/*|       | */  //6
+            HashMap::from([                (4,6.0),(5,4.0),        (2,6.0),(3,3.0)]),//7
+            //
+            HashMap::from([(9,4.0),(10,4.0),(6,6.0),               (4,6.0),(0,4.0),(10,4.0),        (17,8.0),(18,3.0)]),//8
+            HashMap::from([(8,4.0),                                         (4,3.0),(0,3.0)]),/*| */   //9
+            HashMap::from([        (8,4.0),                                         (8,4.0),(0,3.0)]), //10
+            //
+            HashMap::from([(12,6.0),         (14,7.0),      (17,7.0),(21,4.0),(22,7.0)]),//11
+            HashMap::from([(11,6.0),(13,7.0),         (14,6.0),         (15,6.0),        (16,7.0), (0,4.0),(20,8.0),(21,7.0)]),//12
+            HashMap::from([         (12,7.0),/*   */(1,7.0),(14,7.0),   (2,5.0),(15,6.0),/*  */(16,7.0),(0,8.0)]),//13
+            HashMap::from([                  (11,7.0),(12,6.0),(13,7.0),/*                 */(16,6.0),(17,5.0)]),//14
+            HashMap::from([                                             (12,6.0),(13,6.0),/* */                    (0,5.0)]),//15
+            HashMap::from([                                                       (2,6.0),(12,7.0),(13,7.0),(14,6.0),(4,9.0),(17,6.0)]),//16
+            //
+            HashMap::from([                         (6,4.0),(11,7.0),                (4,9.0),(2,8.0),(8,8.0),      (14,5.0),(16,6.0),(18,7.0),(19,6.0),(21,7.0),(22,7.0),(23,5.0),(25,6.0)]),//17
+            //
+            HashMap::from([(19,6.0),                        (6,8.0),                                         (8,3.0),     (0,6.0),     (17,7.0)]),//18
+            HashMap::from([(18,6.0),(23,6.0),(25,3.0),                                                                      (0,3.0),       (17,6.0)]),//19
+
+            HashMap::from([(21,6.0),                                                                     (12,8.0),                   (0,0.0),          (22,6.0),(24,6.0)]),//20
+            HashMap::from([(20,6.0),         (22,6.0),                (11,4.0),                                    (12,7.0),                            (17,7.0)]),//21
+
+            HashMap::from([(23,6.0),(24,6.0),(21,6.0),(25,6.0),(27,5.0),           (11,7.0),                                                     (0,3.0),(20,6.0),(17,7.0)]),//22
+            HashMap::from([(22,6.0),(19,6.0),                  (25,4.0),                                                                                                    (17,5.0)]),
+            HashMap::from([         (22,6.0),                                                                                                            (0,4.0),  (20,6.0)]),
+
+            HashMap::from([(26,6.0),(27,5.0),(19,3.0),(22,6.0),(23,4.0),                                                                                          (0,4.0),        (17,6.0)]),//25
+            HashMap::from([(25,6.0),                                                                                                                                      (0,1.0)]),
+            HashMap::from([         (25,5.0),                  (22,5.0),                                                                                                          (0,3.0)]),
+        ]){
+            if *graph != expected {
+                println!("mismatch at {idx:?}");
+                println!("expected: {:?}", expected.iter().sorted_by(|a,b| a.0.cmp(b.0)));
+                println!("graph:    {:?}", graph.iter().sorted_by(|a,b| a.0.cmp(b.0)));
+                panic!()
+            }
+        }
         let mut graph_elevs = vec![f64::MIN; supergraph.spill_graph().len()];
-        fill_graph(supergraph.spill_graph(), &mut graph_elevs);
+        fill_graph(&supergraph.spill_graph(), &mut graph_elevs);
         assert_eq!(&graph_elevs, &[
-            0.0,
-            1.0,
-            4.0,
-            4.0,
-            1.0,
-            2.0,
+            f64::MIN,
+            1.0,4.0,4.0,
+            1.0,2.0,5.0,4.0,
+            4.0,3.0,3.0,
+            6.0,4.0,5.0,5.0,5.0,6.0,
             5.0,
-            6.0,
-            4.0,
-            3.0,
-            3.0,
-            7.0,
-            4.0,
-            8.0,
-            6.0,
-            5.0,
-            9.0,
-            9.0,
-            6.0,
-            3.0,
-            0.0,
-            6.0,
-            3.0,
-            6.0,
-            4.0,
-            4.0,
-            1.0,
-            3.0
+            4.0,3.0,
+            0.0,6.0,
+            3.0,4.0,4.0,
+            3.0,1.0,3.0
         ]);
     }
 }
