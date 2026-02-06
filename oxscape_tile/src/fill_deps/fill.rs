@@ -1,10 +1,14 @@
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::fmt::Debug;
 
+use num_traits::float::TotalOrder;
 use ordered_float::FloatCore;
 use oxscape::GridMeta;
 
-use crate::{Cell, TLabel, producer::SpillGraph};
+use crate::TLabel;
+use crate::fill_deps::Cell;
+use crate::fill_deps::graph::SpillGraph;
+use crate::tile::{TileCoord, TileInfo};
 
 /// flag bit for the region of interest.
 ///
@@ -37,6 +41,36 @@ impl NextUp for f64 {
     }
 }
 
+/// All data that is needed to solve the global problem
+#[derive(Debug, PartialEq)]
+pub struct FillData<T> {
+    pub(crate) tile_info: TileInfo,
+    pub(crate) spill_graph: SpillGraph<T>,
+    pub(crate) dem_edges: Vec<T>,
+    pub(crate) label_edges: Vec<TLabel>,
+}
+
+impl<T> FillData<T> {
+    pub fn new(
+        tile_coord: TileCoord,
+        meta: GridMeta,
+        spill_graph: SpillGraph<T>,
+        dem_edges: Vec<T>,
+        label_edges: Vec<TLabel>,
+    ) -> Self {
+        Self {
+            tile_info: TileInfo { tile_coord, meta },
+            spill_graph,
+            dem_edges,
+            label_edges,
+        }
+    }
+
+    pub fn spill_graph(&self) -> &SpillGraph<T> {
+        &self.spill_graph
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ZhouFillState<T: FloatCore> {
     /// The priority queue that holds boundary cells
@@ -48,7 +82,7 @@ pub struct ZhouFillState<T: FloatCore> {
     current_label: TLabel,
 }
 
-impl<T: FloatCore + NextUp> ZhouFillState<T> {
+impl<T: FloatCore + NextUp + TotalOrder> ZhouFillState<T> {
     pub fn new(start_label: TLabel) -> Self {
         Self {
             priority_queue: BinaryHeap::new(),
@@ -209,7 +243,7 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
                     let Some(nn) = meta.try_shift(c.x, c.y, dir) else {
                         continue;
                     };
-                    if labels[nn] != NOT_FILLED && dem[nn] < dem[n] {
+                    if labels[nn] != NOT_FILLED && dem[nn] <= dem[n] {
                         labels[n] = labels[nn];
                         neighbour = true;
                     }
@@ -246,10 +280,34 @@ impl<T: FloatCore + NextUp> ZhouFillState<T> {
 }
 
 /// Fill a dem using the Zhou filling algorithm
-pub fn fill_zhou2016<T: FloatCore + NextUp>(meta: &GridMeta, dem: &mut [T], labels: &mut [TLabel]) {
-    let mut state = ZhouFillState::new(0);
+pub fn fill_zhou2016<T: FloatCore + NextUp + TotalOrder>(
+    meta: &GridMeta,
+    dem: &mut [T],
+    labels: &mut [TLabel],
+) {
+    let mut state = ZhouFillState::<T>::new(0);
     state.add_edges(meta, dem);
     while state.step(meta, dem, labels, |_, _| {}) {}
+}
+
+pub fn fill_zhou_watersheds<T: FloatCore + NextUp + TotalOrder + Debug>(
+    meta: &GridMeta,
+    dem: &mut [T],
+) -> (Vec<TLabel>, SpillGraph<T>) {
+    let mut labels = vec![NOT_FILLED; meta.size()];
+    let mut spill_graph = vec![HashMap::new(); 2 * meta.width() + 2 * meta.height()];
+    let mut fillstate = ZhouFillState::new(0);
+    fillstate.add_edges(meta, dem);
+    while fillstate.step(
+        meta,
+        dem,
+        &mut labels,
+        |(my_label, n_label), (my_elev, n_elev)| {
+            watersheds_meet(my_label, n_label, my_elev, n_elev, &mut spill_graph)
+        },
+    ) {}
+    spill_graph.truncate(usize::try_from(*fillstate.current_label()).unwrap());
+    (labels, spill_graph)
 }
 
 pub fn watersheds_meet<T: FloatCore + Debug>(
@@ -284,14 +342,28 @@ pub fn watersheds_meet<T: FloatCore + Debug>(
         .or_insert(elev_over);
 }
 
+pub fn raise_catchments<T: PartialOrd + Clone>(
+    dem: &mut [T],
+    labels: &[TLabel],
+    graph_elevs: &[T],
+) {
+    for (elev, label) in dem.iter_mut().zip(labels) {
+        // raise if current elev is lower than the catchment's required elevation to spill
+        if *elev < graph_elevs[usize::try_from(*label).unwrap()] {
+            *elev = graph_elevs[usize::try_from(*label).unwrap()].clone()
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use core::f64;
+
     use oxscape::GridMeta;
 
-    use crate::{
-        TLabel,
-        fill::{NOT_FILLED, ROI_FLAG, ZhouFillState, fill_zhou2016},
-    };
+    use crate::fill_deps::{fill_graph::fill_graph, graph::SuperGraph, grid::VecFillGrid};
+
+    use super::*;
 
     #[test]
     #[rustfmt::skip]
@@ -306,9 +378,9 @@ mod test {
         let mut labels = vec![NOT_FILLED;dem.len()];
         let expected = [
             15.0,15.0,14.0,15.0,12.0, 6.0,12.0,
-            14.0,13.0,11.0f64.next_up(),12.0,15.0,17.0,15.0,
-            15.0,15.0,11.0f64.next_up(),11.0, 8.0,15.0,15.0,
-            16.0,17.0,11.0f64.next_up(),16.0,15.0, 7.0, 5.0,
+            14.0,13.0,11.0,12.0,15.0,17.0,15.0,
+            15.0,15.0,11.0,11.0, 8.0,15.0,15.0,
+            16.0,17.0,11.0,16.0,15.0, 7.0, 5.0,
             19.0,18.0,19.0,18.0,17.0,15.0,14.0,
         ];
         fill_zhou2016(&GridMeta::new(7, 5), &mut dem, &mut labels);
@@ -341,13 +413,22 @@ mod test {
         assert_eq!(&dem, &[
         //  0 1 2 3 4 5 6
             3,4,4,5,5,6,7,
-            6,6,5,4,4,6,8,//6,6,5,4,...
-            6,6,5,4,4,5,6,//6,6,5,4,...
+            6,6,5,4,4,6,8,//6,6,5,3,...
+            6,6,5,4,4,5,6,//6,6,5,3,...
             6,5,4,4,4,4,3,
             6,5,4,3,3,4,4,
             7,6,4,2,3,4,4,
             8,7,4,2,3,4,4,
         ].map(|v| v as f32));
+        assert_eq!(&labels, &[
+            1,1,1,1,0,0,0,
+            1,0,1,0,0,0,0,
+            0,0,0,0,0,0,0,
+            0,0,0,0,0,0,2,
+            0,0,0,0,0,0,2,
+            0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,
+        ])
     }
 
     #[test]
@@ -379,7 +460,59 @@ mod test {
 
     #[test]
     #[rustfmt::skip]
-    fn tiled_dem() {
+    fn test_tiled_third_fifth() {
+        let meta = GridMeta::new(7, 7);
+        let dems = [
+        [
+            3,4,4,5,5,6,7,
+            6,6,5,3,4,6,8,
+            6,6,5,3,4,5,6,
+            6,5,4,4,4,4,3,
+            6,5,4,3,3,4,4,
+            7,6,4,2,3,4,4,
+            8,7,4,2,3,4,4,
+        ],[
+            8,7,5,5,4,4,6,
+            5,4,3,4,3,4,7,
+            4,3,3,4,2,4,7,
+            5,4,4,5,3,4,7,
+            7,6,5,5,4,5,7,
+            8,7,5,5,4,5,7,
+            7,7,6,6,5,5,6,
+        ]
+        ];
+        let filled = [
+        [
+        //  0 1 2 3 4 5 6
+            3,4,4,5,5,6,7,
+            6,6,5,4,4,6,8,//6,6,5,4,...
+            6,6,5,4,4,5,6,//6,6,5,4,...
+            6,5,4,4,4,4,3,
+            6,5,4,3,3,4,4,
+            7,6,4,2,3,4,4,
+            8,7,4,2,3,4,4,
+        ],[
+            8,7,5,5,4,4,6,
+            5,4,4,4,4,4,7,
+            4,4,4,4,4,4,7,
+            5,4,4,5,4,4,7,
+            7,6,5,5,4,5,7,
+            8,7,5,5,4,5,7,
+            7,7,6,6,5,5,6,
+        ]
+        ];
+        for (idx, tile) in dems.iter().enumerate() {
+            let mut dem = tile.map(|v| v as f64);
+            let mut labels = [NOT_FILLED; 49];
+            fill_zhou2016(&meta, &mut dem, &mut labels);
+            meta.print(&dem.map(|v| v as u32));
+            assert_eq!(dem, filled[idx].map(|v| v as f64));
+        }
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn barnes() {
         // the sample tiled dem from Barnes
         let tiled = [
             [
@@ -497,100 +630,241 @@ mod test {
         let sheds = [
             [
             //  0 1 2 3 4 5 6
-                3,3,3,5,5,5,6,
-                3,3,3,5,5,5,5,
-                3,3,3,5,5,5,5,
-                3,3,3,5,5,5,5,
-                3,3,3,4,4,5,5,
-                3,4,4,4,4,4,4,
-                3,4,4,4,4,4,4
+                0,0,0,2,2,2,2,
+                0,0,0,2,2,2,2,
+                0,0,0,2,2,2,2,
+                0,0,0,2,2,2,2,
+                0,0,0,1,1,2,2,
+                0,1,1,1,1,1,1,
+                0,1,1,1,1,1,1
             ],
             [
-                3,3,3,5,5,5,6,
-                3,3,3,5,5,5,5,
-                3,3,3,5,5,5,5,
-                3,3,3,5,5,5,5,
-                3,3,3,4,4,5,5,
-                3,4,4,4,4,4,4,
-                3,4,4,4,4,4,4
+                1,1,1,0,0,0,0,
+                1,1,1,0,0,0,0,
+                3,3,1,0,0,0,0,
+                3,3,1,0,0,0,0,
+                3,3,0,0,2,2,2,
+                3,0,0,2,2,2,2,
+                0,0,2,2,2,2,2,
             ],
             [
-                4,4,4,4,4,4,4,
-                4,4,4,4,4,4,5,
-                3,3,4,4,4,5,5,
-                3,3,3,3,3,3,5,
-                3,3,3,3,3,3,5,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
+                1,1,1,1,0,0,0,
+                1,0,1,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,2,
+                0,0,0,0,0,0,2,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
             ],
             [
-                7,5,5,5,5,8,8,
-                7,5,5,5,5,8,8,
-                7,7,4,4,6,6,6,
-                4,4,4,4,4,6,6,
-                4,4,4,4,4,6,6,
-                4,4,4,4,4,3,3,
-                4,4,4,4,4,3,3,
+                2,2,2,2,2,5,5,
+                4,2,1,2,1,3,5,
+                4,1,1,1,1,1,3,
+                1,1,1,1,1,3,3,
+                1,1,1,1,1,0,0,
+                1,1,1,1,0,0,0,
+                1,1,1,0,0,0,0,
             ],
             [
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
             ],
             [
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,4,
-                3,3,3,3,3,4,4,
-                4,4,4,4,4,4,4,
-                4,4,4,4,4,4,4,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                1,0,0,0,0,0,0,
+                1,0,0,0,0,1,1,
+                1,1,1,1,1,1,1,
+                1,1,1,1,1,1,1,
             ],
             [
-                3,3,4,4,4,4,4,
-                3,3,3,4,4,4,4,
-                3,3,3,3,3,4,4,
-                3,3,3,3,3,4,4,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
+                0,1,1,1,1,1,1,
+                0,1,1,1,1,1,1,
+                0,0,0,1,1,1,1,
+                0,0,0,0,1,0,1,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
             ],
             [
-                3,3,3,4,4,4,4,
-                3,3,3,3,4,4,4,
-                3,3,3,3,3,4,4,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
-                5,5,3,3,3,3,3,
-                5,5,3,3,3,3,3,
+                0,0,0,0,1,1,1,
+                0,0,0,0,0,1,1,
+                0,0,0,0,0,0,1,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                2,0,0,0,0,0,0,
+                2,0,0,0,0,0,0,
             ],
             [
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,3,3,
-                3,3,3,3,3,4,4,
-                5,5,5,5,4,4,4,
-                5,5,5,5,4,4,4,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,1,
+                2,2,2,0,0,1,1,
+                2,2,2,0,1,1,1,
             ],
         ];
+        let graphs = [
+            vec![
+                HashMap::from([(1,4.0),(2,4.0)]), // 0-4->2
+                HashMap::from([(2,4.0)]),
+                HashMap::new(),
+            ],vec![
+                HashMap::from([(1,4.0),(2,5.0),(3,6.0)]),
+                HashMap::from([(3,4.0)]),
+                HashMap::from([]),
+                HashMap::from([]),
+            ],
+            vec![
+                HashMap::from([(1,4.0),(2,4.0)]),
+                HashMap::from([]),
+                HashMap::from([]),
+            ],vec![
+                HashMap::from([(1,6.0),(3,7.0)]),
+                HashMap::from([(2,7.0),(3,6.0),(4,6.0),(5,7.0)]),
+                HashMap::from([(3,7.0),(4,6.0),(5,7.0)]),
+                HashMap::from([(5,6.0)]),
+                HashMap::from([]),
+                HashMap::from([]),
+            ],vec![
+                HashMap::from([]),
+            ],vec![
+                HashMap::from([(1,6.0)]),
+                HashMap::from([]),
+            ],vec![
+                HashMap::from([(1,6.0)]),
+                HashMap::from([]),
+            ],vec![
+                HashMap::from([(1,6.0),(2,6.0)]),
+                HashMap::from([]),
+                HashMap::from([]),
+            ],vec![
+                HashMap::from([(1,6.0),(2,5.0)]),
+                HashMap::from([]),
+                HashMap::from([]),
+            ]
+        ];
         let meta = GridMeta::new(7, 7);
-        let mut labels = [NOT_FILLED; 49];
-        for (idx, tile) in tiled.iter().enumerate() {
-            let mut dem = tile.map(|v| v as f64);
-            let mut fs = ZhouFillState::new(2);
-            fs.add_edges(&meta, &dem);
-            while fs.step(&meta, &mut dem, &mut labels, |_,_|{}){}
-            println!("dem:");
+        let supermeta = GridMeta::new(3, 3);
+        let mut dems = tiled.map(|tile| tile.map(|v| v as f64));
+        let mut labels_grid = Vec::with_capacity(9);
+        let mut spillgraphs = Vec::with_capacity(supermeta.size());
+        for (idx, dem) in dems.iter_mut().enumerate() {
+            let (labels, graph) =  fill_zhou_watersheds(&meta, dem);
+            
             meta.print(&dem.map(|v| v as u32));
-            assert_eq!(&dem, &filled[idx].map(|v| v as f64));
-            println!("labels:");
+            assert_eq!(dem, &filled[idx].map(|v| v as f64));
             meta.print(&labels);
-            assert_eq!(labels, sheds[idx]);
+            assert_eq!(&labels, &sheds[idx]);
+
+            assert_eq!(graph, graphs[idx]);
+            labels_grid.push(labels);
+            spillgraphs.push(graph);
         }
+        
+        let grid = VecFillGrid::new(supermeta.clone(), dems
+            .iter()
+            .zip(&labels_grid)
+            .enumerate()
+            .map(|(i,(dem,labels))| {
+                FillData::new(
+                    supermeta.i_to_xy(i).into(),
+                    meta.clone(),
+                    spillgraphs[i].clone(), meta.edges(dem), meta.edges(labels))
+            })
+            .collect()
+        );
+        
+        let mut supergraph = SuperGraph::from_grid(&grid);
+        assert_eq!(supergraph.offsets(),&HashMap::from([
+            ((0,0).into(),(1,3)),
+            ((1,0).into(),(4,4)),
+            ((2,0).into(),(8,3)),
+            ((0,1).into(),(11,6)),
+            ((1,1).into(),(17,1)),
+            ((2,1).into(),(18,2)),
+            ((0,2).into(),(20,2)),
+            ((1,2).into(),(22,3)),
+            ((2,2).into(),(25,3)),
+        ]));
+        println!("{:#?}",supergraph.spill_graph());
+        assert_eq!(supergraph.spill_graph(), &vec![
+            HashMap::from([]),//0
+
+            HashMap::from([(2,4.0),(3,4.0)]),//1
+            HashMap::from([(1,4.0),/* |  */(3,4.0)]),//2
+            HashMap::from([        (1,4.0),(2,4.0)]),//3
+
+            HashMap::from([(5,4.0),(6,5.0),(7,6.0)]),//4
+            HashMap::from([(4,4.0),/* |        | */(7,4.0)]),//5
+            HashMap::from([        (4,5.0)]),/*|       | */  //6
+            HashMap::from([                (4,6.0),(5,4.0)]),//7
+
+            HashMap::from([(9,4.0),(10,4.0)]),//8
+            HashMap::from([(8,4.0)]),/*| */   //9
+            HashMap::from([        (8,4.0)]), //10
+
+            HashMap::from([(12,6.0),         (14,7.0)]),                                    //11
+            HashMap::from([(11,6.0),(13,7.0),         (14,6.0),         (15,6.0),        (16,7.0)]),//12
+            HashMap::from([         (12,7.0),/* |        |   */(14,7.0),/*     */(15,6.0),/* |  */(16,7.0)]),//13
+            HashMap::from([                  (11,7.0),(12,6.0),(13,7.0),/*  |         |                 */(16,6.0)]),//14
+            HashMap::from([                                             (12,6.0),(13,6.0)/*   | */]),//15
+            HashMap::from([                                                              (12,7.0),(13,7.0),(14,6.0)]),//16
+
+            HashMap::from([]),
+
+            HashMap::from([(19,6.0)]),
+            HashMap::from([(18,6.0)]),
+
+            HashMap::from([(21,6.0)]),
+            HashMap::from([(20,6.0)]),
+
+            HashMap::from([(23,6.0),(24,6.0)]),
+            HashMap::from([(22,6.0)]),
+            HashMap::from([         (22,6.0)]),
+
+            HashMap::from([(26,6.0),(27,5.0)]),
+            HashMap::from([(25,6.0)]),
+            HashMap::from([         (25,5.0)]),
+        ]);
+        let mut graph_elevs = vec![f64::MIN; supergraph.spill_graph().len()];
+        fill_graph(supergraph.spill_graph(), &mut graph_elevs);
+        assert_eq!(&graph_elevs, &[
+            0.0,
+            1.0,
+            4.0,
+            4.0,
+            1.0,
+            2.0,
+            5.0,
+            6.0,
+            4.0,
+            3.0,
+            3.0,
+            7.0,
+            4.0,
+            8.0,
+            6.0,
+            5.0,
+            9.0,
+            9.0,
+            6.0,
+            3.0,
+            0.0,
+            6.0,
+            3.0,
+            6.0,
+            4.0,
+            4.0,
+            1.0,
+            3.0
+        ]);
     }
 }

@@ -1,11 +1,12 @@
 #![warn(clippy::pedantic)]
 use color_eyre::Result;
 use oxscape::GridMeta;
-use oxscape_tile::fill::{NOT_FILLED, fill_zhou2016};
+// use oxscape_tile::fill_deps::fill::{NOT_FILLED, fill_zhou2016};
 use rand::prelude::*;
 
 pub mod sim;
 pub mod tile;
+pub mod tile_grid;
 
 /// Arrows that point in the direction
 /// ```
@@ -38,6 +39,6 @@ pub fn random_dem(dem: &mut [f64], meta: &GridMeta, seed: u64) -> Result<()> {
                 row[i] = rng.random_range(0.0..1.0);
             }
         });
-    fill_zhou2016(meta, dem, &mut vec![NOT_FILLED; dem.len()]);
+    // fill_zhou2016(meta, dem, &mut vec![NOT_FILLED; dem.len()]);
     Ok(())
 }

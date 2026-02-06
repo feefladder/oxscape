@@ -1,6 +1,22 @@
 use oxscape::GridMeta;
 
-use crate::producer::TileCoord;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct TileCoord {
+    pub x: usize,
+    pub y: usize,
+}
+
+impl TileCoord {
+    pub fn new(x: usize, y: usize) -> Self {
+        Self { x, y }
+    }
+}
+
+impl From<(usize, usize)> for TileCoord {
+    fn from(value: (usize, usize)) -> Self {
+        Self::new(value.0, value.1)
+    }
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct TileInfo {
@@ -19,6 +35,10 @@ pub struct TileInfo {
 }
 
 impl TileInfo {
+    pub fn new(tile_coord: TileCoord, meta: GridMeta) -> Self {
+        Self { tile_coord, meta }
+    }
+
     pub fn xy(&self) -> TileCoord {
         self.tile_coord
     }

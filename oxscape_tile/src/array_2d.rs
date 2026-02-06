@@ -133,7 +133,7 @@ impl<T: Bounded + Clone + Debug> SkirtedTile<T> {
     pub fn new(meta: GridMeta, data: Vec<T>) -> Self {
         assert!(meta.size() == data.len());
         Self {
-            skirt: vec![T::max_value(); meta.skirt_range(7).end],
+            skirt: vec![T::max_value(); meta.skirt_size()],
             has_edges: 0,
             center: data,
             skirted_meta: GridMeta::new(meta.width() + 1, meta.height() + 1),

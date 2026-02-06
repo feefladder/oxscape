@@ -1,6 +1,5 @@
 use color_eyre::{Report, Result};
 use colorous::Gradient;
-use ordered_float::OrderedFloat;
 use oxscape::{
     GridMeta,
     mflow::{NO_FLOW_GEN, Order, metrics::Dinf},
@@ -9,13 +8,13 @@ use oxscape_erode::{
     Params, add_uplift,
     mflow::{accum, erode},
 };
-use oxscape_tile::fill::{NOT_FILLED, fill_zhou2016};
+
 use ratatui::prelude::*;
-use ratatui::widgets::WidgetRef;
 use rayon::prelude::*;
 
 use crate::{DIRS, random_dem};
 
+#[derive(Debug, Clone)]
 pub struct DefaultSim {
     gradient: Gradient,
     dem: Vec<f64>,
@@ -75,7 +74,7 @@ impl DefaultSim {
 
         let mut dem = vec![0.0; meta.size()];
         random_dem(&mut dem, &meta, 42).map_err(|e| Report::msg(e.to_string()))?;
-        fill_zhou2016(&meta, &mut dem, &mut vec![NOT_FILLED; meta.size()]);
+        // fill_zhou2016(&meta, &mut dem, &mut vec![NOT_FILLED; meta.size()]);
         let order = Order::from_dem_metric(meta, &dem, &mut Dinf)
             .map_err(|e| Report::msg(e.to_string()))?;
 
@@ -103,38 +102,37 @@ impl DefaultSim {
         self.seed += 1;
         random_dem(&mut self.dem, self.order.meta(), self.seed)
             .map_err(|e| Report::msg(e.to_string()))?;
-        fill_zhou2016(
-            self.order.meta(),
-            &mut self.dem,
-            &mut vec![NOT_FILLED; self.order.meta().size()],
-        );
+        // fill_zhou2016(
+        //     self.order.meta(),
+        //     &mut self.dem,
+        //     &mut vec![NOT_FILLED; self.order.meta().size()],
+        // );
         self.order
             .reorder(&self.dem, &mut Dinf)
             .map_err(|e| Report::msg(e.to_string()))
     }
 
-    pub fn step(&mut self) -> Result<()> {
+    pub fn step(&mut self) -> Result<bool> {
         add_uplift(self.order.meta(), &self.params, &mut self.dem);
         accum(&self.order, &self.params, &mut self.accum);
         erode(&self.order, &self.params, &self.accum, &mut self.dem);
         // fill_zhou2016(self.order.meta(), &mut self.dem);
         self.order
             .reorder(&self.dem, &mut Dinf)
-            .map_err(|e| Report::msg(e.to_string()))
+            .map_err(|e| Report::msg(e.to_string()))?;
+        Ok(true)
     }
 }
 
-impl WidgetRef for DefaultSim {
-    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+impl Widget for &DefaultSim {
+    fn render(self, area: Rect, buf: &mut Buffer) {
         assert!(usize::from(area.width / 2) >= self.order.meta().width());
         assert!(usize::from(area.height) >= self.order.meta().height());
         let max = self
             .dem
             .par_iter()
-            .map(|v| OrderedFloat(*v))
-            .max()
-            .unwrap()
-            .0;
+            .max_by(|a, b| a.total_cmp(b))
+            .unwrap_or(&1.0);
         self.order
             .levels()
             .windows(2)

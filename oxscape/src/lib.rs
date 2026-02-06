@@ -285,9 +285,24 @@ impl GridMeta {
     /// 0 0 1 0     B 9 A 8
     /// ```
     ///
-    #[must_use] 
+    #[must_use]
     pub fn skirt_range(&self, dir: u8) -> Range<usize> {
         self.skirt_idx(dir)..self.skirt_idx(dir + 1)
+    }
+
+    /// Gives the size of the outer perimeter or skirt
+    ///
+    /// If all edges and corners are collected into a single vec, this gives the size
+    ///
+    /// ```
+    /// use oxscape::GridMeta;
+    /// let meta = GridMeta::new(3,4);
+    /// //  perimeter + 4 corners
+    /// assert_eq!(meta.skirt_size(),2*3+2*4+4);
+    /// ```
+    ///
+    pub fn skirt_size(&self) -> usize {
+        self.width * 2 + self.height * 2 + 4
     }
 
     fn skirt_idx(&self, dir: u8) -> usize {
@@ -509,7 +524,7 @@ mod test {
             12,13,14,15
         ];
         let meta = GridMeta::new(4, 4);
-        let mut edges = Vec::with_capacity(meta.skirt_range(7).end);
+        let mut edges = Vec::with_capacity(meta.skirt_size());
         for dir in 0..8 {
             for edge_cell in meta.edge(&arr, dir) {
                 edges.push(*edge_cell);

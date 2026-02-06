@@ -25,12 +25,17 @@ use std::{collections::HashMap, fmt::Debug, sync::Arc};
 use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
 use bytemuck::{AnyBitPattern, NoUninit, cast_slice, cast_slice_mut};
+use num_traits::float::TotalOrder;
 use ordered_float::FloatCore;
 use oxscape::GridMeta;
 
 use crate::{
-    fill::{NextUp, ZhouFillState, watersheds_meet},
-    producer::{ConsumerMessage, FillData, ProducerMessage, SpillGraph, TileCoord},
+    fill_deps::{
+        fill::{FillData, NextUp, ZhouFillState, watersheds_meet},
+        graph::SpillGraph,
+    },
+    producer::{ConsumerMessage, ProducerMessage},
+    tile::TileCoord,
 };
 
 #[async_trait]
@@ -51,7 +56,7 @@ struct ConsumerSpecifics<ElevT> {
 
 impl<ElevT> ConsumerSpecifics<ElevT>
 where
-    ElevT: FloatCore + NextUp + AnyBitPattern + NoUninit + Debug,
+    ElevT: FloatCore + NextUp + AnyBitPattern + NoUninit + Debug + TotalOrder,
 {
     pub async fn start(
         tile_server: Arc<dyn TileServer<ElevT>>,
