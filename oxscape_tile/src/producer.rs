@@ -5,9 +5,8 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use async_channel::{Receiver, Sender};
-use num_traits::float::TotalOrder;
-use ordered_float::FloatCore;
-use oxscape::GridMeta;
+use num_traits::float::{FloatCore, TotalOrder};
+use oxscape_core::GridMeta;
 
 use crate::fill_deps::fill::{FillData, NextUp};
 use crate::fill_deps::fill_graph::fill_supergraph;

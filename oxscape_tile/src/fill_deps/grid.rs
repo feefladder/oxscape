@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use oxscape::{GridMeta, XSHIFT, YSHIFT};
+use oxscape_core::{GridMeta, XSHIFT, YSHIFT};
 
 use crate::{
     TLabel,

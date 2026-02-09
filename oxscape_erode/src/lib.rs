@@ -6,7 +6,8 @@ use rayon::prelude::*;
 #[cfg(feature = "fill")]
 pub mod fill_deps;
 
-use oxscape::GridMeta;
+use oxscape_core::GridMeta;
+
 #[cfg(feature = "wasm_js")]
 use wasm_bindgen::prelude::*;
 

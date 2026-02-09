@@ -5,7 +5,7 @@ use std::{
 
 use num_traits::Bounded;
 
-use oxscape::{EdgeIterator, GridMeta};
+use oxscape_core::{EdgeIterator, GridMeta};
 
 #[allow(unused)]
 enum Dir {

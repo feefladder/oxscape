@@ -1,0 +1,19 @@
+[package]
+name = "oxscape_contour"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bytemuck = "1.24.0"
+num-traits = "0.2.19"
+rayon = "1.11"
+oxscape_core = {version = "0.1", path = "../oxscape_core"}
+oxscape_flowmets = {version = "0.1", path = "../oxscape_flowmets", optional = true}
+anyhow = "1.0.101"
+
+[features]
+default = ["metrics"]
+metrics = ["dep:oxscape_flowmets"]
+

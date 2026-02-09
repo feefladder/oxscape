@@ -1,9 +1,8 @@
-use crate::{Bazooka, GridMeta, NOT_A_DONOR};
-use anyhow::{Result, anyhow};
+use crate::{Bazooka, NOT_A_DONOR};
+use anyhow::anyhow;
 use num_traits::{Float, Zero};
+use oxscape_core::{GridMeta, NO_FLOW, Result};
 use rayon::prelude::*;
-
-pub const NO_FLOW: u8 = 8;
 
 #[allow(clippy::cast_precision_loss)]
 pub fn generate_boring_terrain(dem: &mut [f64], start: f64, delta: f64) {
@@ -42,7 +41,9 @@ pub trait FlowMetric {
 #[cfg(test)]
 fn compute_donors(meta: &GridMeta, rec: &[u8], donor: &mut [[usize; 8]]) {
     donor.fill([NOT_A_DONOR; 8]);
-    for c in 0..meta.size {
+    for c in 0..meta.size() {
+        use oxscape_core::NO_FLOW;
+
         let receiver = rec[c];
         if receiver == NO_FLOW {
             continue;
@@ -64,7 +65,7 @@ fn compute_donors(meta: &GridMeta, rec: &[u8], donor: &mut [[usize; 8]]) {
 fn compute_donors_par(meta: &GridMeta, rec: &[u8], donors: &mut [[usize; 8]]) {
     // In the single-flow case, it's more efficient to iterate receivers
     // because we don't have to check all neighbours of a donor
-    assert_eq!(donors.len(), meta.size);
+    assert_eq!(donors.len(), meta.size());
     donors.fill([NOT_A_DONOR; 8]);
     // cast &mut [[usize;8]] to &mut [usize] so we can access cell's directions
     // in parallel without aliasing problems
@@ -79,7 +80,7 @@ fn compute_donors_par(meta: &GridMeta, rec: &[u8], donors: &mut [[usize; 8]]) {
         //downhill cell's donor array at the direction's index
         let n: usize = meta.shift(idx, *dir);
         // bounds check
-        assert!(n < meta.size);
+        assert!(n < meta.size());
         // SAFETY: we are in-bounds: `donors.len()==meta.size>n`
         let addr = unsafe { r.0.add(n * 8 + GridMeta::rev(usize::from(*dir))) };
         // SAFETY: we are the only cell from this direction.
@@ -157,7 +158,7 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
     ///   - donors are defined as neighbouring cells that have flow pointing to this cell
     ///     - `&arr[donors[dir]]` when `donors[dir]!=NOT_A_DONOR` is sound
     ///   - receivers are neighbouring cells that this cell flows into
-    ///     - `&arr[meta.shift(idx,reveiver)]` is sound
+    ///     - `&arr[meta.shift(idx,receiver)]` is sound
     unsafe fn new(
         arr: &'a Bazooka<T>,
         idx: usize,
@@ -205,7 +206,7 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
     #[must_use]
     pub fn receiver(&self) -> T {
         let n = self.meta.shift(self.idx, self.receivers[self.idx]);
-        assert!(n < self.meta.size);
+        assert!(n < self.meta.size());
         // SAFETY:
         // - meta.shift function casts to isize and back, so we are within `isize`
         // - meta.shift is also guaranteed to output a value within the allocation
@@ -277,11 +278,11 @@ impl Order {
     /// Create an uninitialized order
     #[must_use]
     pub fn empty(meta: GridMeta) -> Self {
-        let receivers = vec![0; meta.size];
-        let donors = vec![[0; 8]; meta.size];
+        let receivers = vec![0; meta.size()];
+        let donors = vec![[0; 8]; meta.size()];
         // SAFETY: stack and levels need to be empty so that no traversal is done
-        let stack = Vec::with_capacity(meta.size);
-        let levels = Vec::with_capacity(2 * meta.width + 2 * meta.height);
+        let stack = Vec::with_capacity(meta.size());
+        let levels = Vec::with_capacity(2 * meta.width() + 2 * meta.height());
         Self {
             meta,
             donors,
@@ -302,7 +303,7 @@ impl Order {
         dem: &[f64],
         metric: &mut M,
     ) -> Result<Self> {
-        if meta.size != dem.len() {
+        if meta.size() != dem.len() {
             return Err(anyhow!("meta dem mismatch"));
         }
         let mut s = Self::empty(meta);
@@ -317,7 +318,7 @@ impl Order {
     /// - if the supplied dem doesn't match the grid
     /// - if the supplied metric gives an error
     pub fn reorder<M: FlowMetric>(&mut self, dem: &[f64], metric: &mut M) -> Result<()> {
-        if self.meta.size != dem.len() {
+        if self.meta.size() != dem.len() {
             return Err(anyhow!("meta dem mismatch"));
         }
         metric.metric(&self.meta, dem, &mut self.receivers)?;
@@ -345,7 +346,7 @@ impl Order {
     ) {
         // SAFETY: if data.len < self.meta.size, the LevelAccessor would access
         // out-of-bounds data.
-        assert!(data.len() == self.meta.size);
+        assert!(data.len() == self.meta.size());
         let b = Bazooka(data.as_mut_ptr());
         for level in self.levels.windows(2).map(|w| &self.stack[w[0]..w[1]]) {
             level.into_par_iter().for_each(|v| {
@@ -441,16 +442,16 @@ mod test {
         8,  2,  2,  2,  2,  8,// 4
         8,  8,  8,  8,  8,  8,// 5
     ];
-    const ND: usize = NOT_A_DONOR;
+    const N: usize = NOT_A_DONOR;
     pub const DONOR: [[usize;8];36] = [
         //     0     1                        2                         3                         4                         5                         6                         7                         8                         9
         //    [1   ] [ 1  2  3  4  5  6  7  8] [ 1  2  3  4  5  6  7  8] [ 1  2  3  4  5  6  7  8] [ 1  2  3  4  5  6  7  8] [ 1  2  3  4  5  6  7  8] [ 1  2  3  4  5  6  7  8] [ 1  2  3  4  5  6  7  8] [ 1  2  3  4  5  6  7  8] [ 1  2  3  4  5  6  7  8]
-        /* 0*/[ND;8],[ND,ND,ND,ND,ND,ND, 7,ND], [ND,ND,ND,ND,ND,ND, 8,ND],[ND,ND,ND,ND,ND,ND, 9,ND],[ND,ND,ND,ND,ND,ND,10,ND], [ND;8],
-              [ND;8],[ND,ND,ND,ND,ND,ND,13,ND], [ND,ND,ND,ND,ND,ND,14,ND],[ND,ND,ND,ND,ND,ND,15,ND],[ND,ND,ND,ND,ND,ND,16,ND], [ND;8],
-              [ND;8],[ND,ND,ND,ND,ND,ND,19,ND], [ND,ND,ND,ND,ND,ND,20,ND],[ND,ND,ND,ND,ND,ND,21,ND],[ND,ND,ND,ND,ND,ND,22,ND], [ND;8],
-              [ND;8],[ND,ND,ND,ND,ND,ND,25,ND], [ND,ND,ND,ND,ND,ND,26,ND],[ND,ND,ND,ND,ND,ND,27,ND],[ND,ND,ND,ND,ND,ND,28,ND], [ND;8],
-              [ND;8],[ND;8], [ND;8], [ND;8], [ND;8], [ND;8],
-              [ND;8],[ND;8], [ND;8], [ND;8], [ND;8], [ND;8]
+        /* 0*/[N;8],[N,N,N,N,N,N, 7,N], [N,N,N,N,N,N, 8,N],[N,N,N,N,N,N, 9,N],[N,N,N,N,N,N,10,N], [N;8],
+              [N;8],[N,N,N,N,N,N,13,N], [N,N,N,N,N,N,14,N],[N,N,N,N,N,N,15,N],[N,N,N,N,N,N,16,N], [N;8],
+              [N;8],[N,N,N,N,N,N,19,N], [N,N,N,N,N,N,20,N],[N,N,N,N,N,N,21,N],[N,N,N,N,N,N,22,N], [N;8],
+              [N;8],[N,N,N,N,N,N,25,N], [N,N,N,N,N,N,26,N],[N,N,N,N,N,N,27,N],[N,N,N,N,N,N,28,N], [N;8],
+              [N;8],[N;8], [N;8], [N;8], [N;8], [N;8],
+              [N;8],[N;8], [N;8], [N;8], [N;8], [N;8]
     ];
     pub const LEVELS: [usize;6] = [0, 20, 24, 28, 32, 36];
     pub const STACK: [usize;36] = [
@@ -469,15 +470,15 @@ mod test {
 
     #[test]
     fn test_compute_donors() {
-        let mut donor = vec![[0; 8]; META.size];
+        let mut donor = vec![[0; 8]; META.size()];
         compute_donors_par(&META, &consts::REC, &mut donor);
         assert_eq!(donor, consts::DONOR);
     }
 
     #[test]
     fn test_generate_order() {
-        let mut levels = Vec::with_capacity(META.width * 2 + META.height * 2);
-        let mut stack = Vec::with_capacity(META.size);
+        let mut levels = Vec::with_capacity(META.width() * 2 + META.height() * 2);
+        let mut stack = Vec::with_capacity(META.size());
         generate_order(&consts::REC, &consts::DONOR, &mut stack, &mut levels);
         assert_eq!(stack, consts::STACK);
         assert_eq!(levels, consts::LEVELS);
@@ -492,13 +493,13 @@ mod test {
         panic::set_hook(Box::new(|_| {}));
 
         let meta = GridMeta::new(3, 3);
-        let mut donors = vec![[NOT_A_DONOR; 8]; meta.size];
-        let mut stack = Vec::with_capacity(meta.size);
-        let mut levels = Vec::with_capacity(meta.size);
-        let mut receivers: Vec<u8> = vec![9; meta.size];
-        let mut set = HashSet::with_capacity(meta.size);
+        let mut donors = vec![[NOT_A_DONOR; 8]; meta.size()];
+        let mut stack = Vec::with_capacity(meta.size());
+        let mut levels = Vec::with_capacity(meta.size());
+        let mut receivers: Vec<u8> = vec![9; meta.size()];
+        let mut set = HashSet::with_capacity(meta.size());
 
-        let total = meta.size.pow(9);
+        let total = meta.size().pow(9);
 
         for mut n in 68555889..total {
             // TODO: reset to 0 when done

@@ -1,14 +1,10 @@
 use color_eyre::{Report, Result};
 use colorous::Gradient;
-use oxscape::{
-    GridMeta,
-    mflow::{NO_FLOW_GEN, Order, metrics::Dinf},
-};
-use oxscape_erode::{
-    Params, add_uplift,
-    mflow::{accum, erode},
-};
-
+use oxscape_contour::mflow::Order;
+use oxscape_contour::mflow::metrics::Dinf;
+use oxscape_core::{GridMeta, NO_FLOW_GEN};
+use oxscape_erode::mflow::{accum, erode};
+use oxscape_erode::{Params, add_uplift};
 use ratatui::prelude::*;
 use rayon::prelude::*;
 

@@ -1,6 +1,6 @@
 #![warn(clippy::pedantic)]
 use color_eyre::Result;
-use oxscape::GridMeta;
+use oxscape_core::GridMeta;
 // use oxscape_tile::fill_deps::fill::{NOT_FILLED, fill_zhou2016};
 use rand::prelude::*;
 

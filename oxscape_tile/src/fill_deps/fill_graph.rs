@@ -1,8 +1,7 @@
 use std::collections::{BinaryHeap, HashMap};
 use std::fmt::Debug;
 
-use num_traits::float::TotalOrder;
-use ordered_float::FloatCore;
+use num_traits::float::{FloatCore, TotalOrder};
 
 use crate::TLabel;
 use crate::fill_deps::GraphCell;

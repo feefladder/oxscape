@@ -1,11 +1,12 @@
 mod order;
-pub use order::{FlowMetric, NO_FLOW_GEN, Order};
+pub use order::{FlowMetric, Order};
 #[cfg(feature = "metrics")]
 pub mod metrics;
 
 use rayon::prelude::*;
 
-use crate::{GridMeta, NOT_A_DONOR};
+use crate::NOT_A_DONOR;
+use oxscape_core::{GridMeta, NO_FLOW_GEN};
 
 #[allow(clippy::cast_possible_truncation)] // cast 0..8 to u8
 pub fn compute_donors_mflow(meta: &GridMeta, flows: &[[f64; 8]], donor: &mut [[usize; 8]]) {
@@ -46,7 +47,7 @@ pub fn generate_order_mflow(
 
     // Add cells that don't give flow as the first level
     #[allow(clippy::needless_range_loop)]
-    for c in 0..meta.size {
+    for c in 0..meta.size() {
         if nrec[c] == 0 {
             stack.push(c);
         }
@@ -102,14 +103,6 @@ pub(crate) mod test {
         6.0,7.0,8.0,9.0,
         9.0,10.,11.,12.,
     ];
-    /// ```
-    /// # let arr = [
-    /// 1,2,3
-    /// 0,x,4
-    /// 7,6,5
-    /// # ];
-    /// ```
-    pub const DINF_3: [f64;8] = [0.0,0.590334470601733,0.40966552939826695,0.0,0.0,0.0,0.0,0.0];
     } // mod consts
 
     #[test]

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode};
-use oxscape::GridMeta;
+use oxscape_core::GridMeta;
 use oxscape_erode::Params;
 use oxscape_tile::fill_deps::fill::NOT_FILLED;
 use oxscape_tile::tile::TileCoord;

@@ -1,9 +1,8 @@
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::fmt::Debug;
 
-use num_traits::float::TotalOrder;
-use ordered_float::FloatCore;
-use oxscape::GridMeta;
+use num_traits::float::{FloatCore, TotalOrder};
+use oxscape_core::GridMeta;
 
 use crate::TLabel;
 use crate::fill_deps::Cell;
@@ -357,19 +356,12 @@ pub fn raise_catchments<T: PartialOrd + Clone>(
 
 #[cfg(test)]
 mod test {
+    use crate::fill_deps::{fill_graph::fill_graph, graph::SuperGraph, grid::VecFillGrid};
+
+    use super::*;
     use core::f64;
 
     use itertools::Itertools;
-    use oxscape::GridMeta;
-
-    use crate::fill_deps::{
-        GraphCell,
-        fill_graph::{GraphFillState, fill_graph},
-        graph::SuperGraph,
-        grid::VecFillGrid,
-    };
-
-    use super::*;
 
     #[test]
     #[rustfmt::skip]

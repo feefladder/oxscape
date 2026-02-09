@@ -1,11 +1,10 @@
 use crate::mflow::{compute_donors_mflow, generate_order_mflow};
-use crate::{Bazooka, GridMeta, NOT_A_DONOR};
+use crate::{Bazooka, NOT_A_DONOR};
 
-use anyhow::{Result, anyhow};
+use anyhow::anyhow;
 use num_traits::Zero;
+use oxscape_core::{GridMeta, NO_FLOW_GEN, Result};
 use rayon::prelude::*;
-
-pub const NO_FLOW_GEN: f64 = 0.0;
 
 pub struct LevelAccessor<'a, T: Send + Sync> {
     arr: &'a Bazooka<T>,
@@ -145,11 +144,11 @@ impl Order {
         // SAFETY: we can create bogus flows, donors and nrec
         // as long as stack and levels are empty
         Self {
-            flows: vec![[0.0; 8]; meta.size],
-            donors: vec![[0; 8]; meta.size],
-            nrec: vec![0; meta.size],
-            stack: Vec::with_capacity(meta.size),
-            levels: Vec::with_capacity(2 * meta.width + 2 * meta.height),
+            flows: vec![[0.0; 8]; meta.size()],
+            donors: vec![[0; 8]; meta.size()],
+            nrec: vec![0; meta.size()],
+            stack: Vec::with_capacity(meta.size()),
+            levels: Vec::with_capacity(2 * meta.width() + 2 * meta.height()),
             meta,
         }
     }
@@ -184,7 +183,7 @@ impl Order {
         dem: &[f64],
         metric: &mut M,
     ) -> Result<Self> {
-        if meta.size != dem.len() {
+        if meta.size() != dem.len() {
             return Err(anyhow!("meta dem mismatch"));
         }
         let mut res = Self::empty(meta);
@@ -206,7 +205,7 @@ impl Order {
     ) {
         // SAFETY: if data.len < self.meta.size, the LevelAccessor would access
         // out-of-bounds data.
-        assert!(data.len() == self.meta.size);
+        assert!(data.len() == self.meta.size());
         let b = Bazooka(data.as_mut_ptr());
         for level in self.levels.windows(2).map(|w| &self.stack[w[0]..w[1]]) {
             level.par_iter().for_each(|v| {

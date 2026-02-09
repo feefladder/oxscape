@@ -1,5 +1,5 @@
-use ordered_float::FloatCore;
-use oxscape::GridMeta;
+use num_traits::float::FloatCore;
+use oxscape_core::GridMeta;
 
 pub mod array_2d;
 pub mod consumer;

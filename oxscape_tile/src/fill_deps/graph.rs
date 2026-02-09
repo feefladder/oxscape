@@ -7,8 +7,8 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use ordered_float::FloatCore;
-use oxscape::GridMeta;
+use num_traits::float::FloatCore;
+use oxscape_core::GridMeta;
 
 use crate::fill_deps::grid::FillGrid;
 use crate::{TLabel, tile::TileCoord};

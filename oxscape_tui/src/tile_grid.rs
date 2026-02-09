@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use color_eyre::Result;
 use colorous::Gradient;
-use oxscape::GridMeta;
+use oxscape_core::GridMeta;
 use oxscape_tile::TLabel;
 use oxscape_tile::fill_deps::fill::{NOT_FILLED, raise_catchments};
 use oxscape_tile::fill_deps::fill_graph::GraphFillState;

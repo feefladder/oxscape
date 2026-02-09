@@ -1,8 +1,7 @@
-mod d8;
-use crate::GridMeta;
 use crate::sflow::FlowMetric;
 use anyhow::Result;
-use d8::compute_receivers;
+use oxscape_core::GridMeta;
+use oxscape_flowmets::sflow::d8::compute_receivers;
 
 use num_traits::Float;
 

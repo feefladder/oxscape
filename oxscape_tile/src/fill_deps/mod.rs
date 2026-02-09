@@ -89,7 +89,7 @@ impl<T: TotalOrder> Ord for GraphCell<T> {
 mod test {
     use std::collections::HashMap;
 
-    use oxscape::GridMeta;
+    use oxscape_core::GridMeta;
 
     use crate::fill_deps::{
         fill::{FillData, fill_zhou_watersheds},

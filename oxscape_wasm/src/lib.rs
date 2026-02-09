@@ -1,9 +1,9 @@
-use oxscape::GridMeta;
-use oxscape::mflow;
-use oxscape::mflow::NO_FLOW_GEN;
-use oxscape::mflow::metrics::Dinf;
-use oxscape::sflow;
-use oxscape::sflow::metrics::D8;
+use oxscape_contour::mflow;
+use oxscape_contour::mflow::metrics::Dinf;
+use oxscape_contour::sflow;
+use oxscape_contour::sflow::metrics::D8;
+use oxscape_core::GridMeta;
+use oxscape_core::NO_FLOW_GEN;
 use oxscape_erode::Params;
 use oxscape_erode::add_uplift;
 use oxscape_erode::fill_deps::priority_flood_wei2018;
@@ -245,7 +245,7 @@ impl Simulation {
 
 #[cfg(test)]
 mod tests {
-    use oxscape::NOT_A_DONOR;
+    use oxscape_contour::NOT_A_DONOR;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::*;

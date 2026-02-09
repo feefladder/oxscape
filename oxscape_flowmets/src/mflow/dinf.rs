@@ -1,5 +1,4 @@
-use crate::GridMeta;
-use crate::mflow::NO_FLOW_GEN;
+use oxscape_core::{GridMeta, NO_FLOW_GEN};
 use rayon::prelude::*;
 use std::f64::consts::FRAC_PI_4;
 //Table 1 of Tarboton (1997)
@@ -172,17 +171,40 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::NOT_A_DONOR;
-    use crate::mflow::metrics::Dinf;
-    use crate::mflow::test::consts;
-    use crate::mflow::{Order, compute_donors_mflow, generate_order_mflow};
+
+    #[rustfmt::skip]
+    pub(crate) mod consts {
+    pub const _H_2:[f64;4] = [
+        0.0,1.0,
+        2.0,3.0
+    ];
+    pub const H_3:[f64;9] = [
+        0.0,1.0,2.0,
+        3.0,4.0,5.0,
+        6.0,7.0,8.0,
+    ];
+    pub const H_4: [f64;16] = [
+        0.0,1.0,2.0,3.0,
+        3.0,4.0,5.0,6.0,
+        6.0,7.0,8.0,9.0,
+        9.0,10.,11.,12.,
+    ];
+    /// ```
+    /// # let arr = [
+    /// 1,2,3
+    /// 0,x,4
+    /// 7,6,5
+    /// # ];
+    /// ```
+    pub const DINF_3: [f64;8] = [0.0,0.590334470601733,0.40966552939826695,0.0,0.0,0.0,0.0,0.0];
+    } // mod consts
 
     #[test]
     #[rustfmt::skip]
     fn test_dinf_3() {
         let meta = &GridMeta::new(3, 3);
-        let mut flows = vec![[NO_FLOW_GEN; 8]; meta.size];
-        let mut recs = vec![2; meta.size];
+        let mut flows = vec![[NO_FLOW_GEN; 8]; meta.size()];
+        let mut recs = vec![2; meta.size()];
 
         fm_dinf(&meta, &consts::H_3, &mut flows, &mut recs);
         for x in 1..2 {
@@ -228,8 +250,8 @@ mod test {
     #[rustfmt::skip]
     fn test_depression() {
         const META: &GridMeta = &GridMeta::new(4, 3);
-        let flows = &mut [[NO_FLOW_GEN; 8]; META.size];
-        let nrec = &mut [2; META.size];
+        let flows = &mut [[NO_FLOW_GEN; 8]; META.size()];
+        let nrec = &mut [2; META.size()];
         // check that in a depression, only the pit cell is affected
         // it also pulls flow towards it
         fm_dinf(META, &[
@@ -249,8 +271,8 @@ mod test {
     /// Check all directions single-flow
     fn test_dinf_dirs() {
         const META: &GridMeta = &GridMeta::new(3, 3);
-        let flows = &mut [[NO_FLOW_GEN; 8]; META.size];
-        let nrec = &mut [2; META.size];
+        let flows = &mut [[NO_FLOW_GEN; 8]; META.size()];
+        let nrec = &mut [2; META.size()];
         fm_dinf(META, &[
             1.0,1.0,1.0,
             0.0,0.5,1.0,
@@ -328,8 +350,8 @@ mod test {
     #[rustfmt::skip]
     fn test_dinf_4() {
         const META: &GridMeta = &GridMeta::new(4, 4);
-        let mut flows = vec![[0.0; 8]; META.size];
-        let mut nrec = vec![2; META.size];
+        let mut flows = vec![[0.0; 8]; META.size()];
+        let mut nrec = vec![2; META.size()];
         fm_dinf(&META, &consts::H_4, &mut flows, &mut nrec);
         assert_eq!(flows, &[
             [0.0;8], [0.0;8], [0.0;8], [0.0;8],
@@ -354,8 +376,8 @@ mod test {
             0.0, 1.0, 0.0,
             f64::NAN, 0.0, f64::NAN,
         ];
-        let mut flows = vec![[0.0;8];meta.size];
-        let mut nrec = vec![0;meta.size];
+        let mut flows = vec![[0.0;8];meta.size()];
+        let mut nrec = vec![0;meta.size()];
         fm_dinf(&meta, &h, &mut flows, &mut nrec);
         assert_eq!(flows, &[[0.0;8];9]);
     }
@@ -369,8 +391,8 @@ mod test {
             0.0, 1.0, 0.0,
             0.0, 0.0, 0.0,
         ];
-        let mut flows = vec![[0.0;8];meta.size];
-        let mut nrec = vec![0;meta.size];
+        let mut flows = vec![[0.0;8];meta.size()];
+        let mut nrec = vec![0;meta.size()];
         fm_dinf(&meta, &h, &mut flows, &mut nrec);
         assert_eq!(&flows[4], &[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
     }
@@ -384,8 +406,8 @@ mod test {
             0.0, 1.0, 0.0,
             0.0, 0.0, 0.0,
         ];
-        let mut flows = vec![[0.0;8];meta.size];
-        let mut nrec = vec![0;meta.size];
+        let mut flows = vec![[0.0;8];meta.size()];
+        let mut nrec = vec![0;meta.size()];
         fm_dinf(&meta, &h, &mut flows, &mut nrec);
         assert_eq!(&flows[4], &[0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
     }
@@ -399,94 +421,9 @@ mod test {
             0.0, 1.0, 0.0,
             0.0, 0.0, f64::NAN
         ];
-        let mut flows = vec![[0.0; 8]; meta.size];
-        let mut nrec = vec![0; meta.size];
+        let mut flows = vec![[0.0; 8]; meta.size()];
+        let mut nrec = vec![0; meta.size()];
         fm_dinf(&meta, &h, &mut flows, &mut nrec);
         assert_eq!(&flows[4], &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
-    }
-
-    #[test]
-    #[rustfmt::skip]
-    fn test_dinf_donors_3() {
-        let meta = &GridMeta::new(3, 3);
-        let h = consts::H_3;
-        let mut flows = vec![[0.0;8];meta.size];
-        let mut nrec = vec![0;meta.size];
-        fm_dinf(&meta, &h, &mut flows, &mut nrec);
-        let mut donor = vec![[0;8];meta.size];
-        compute_donors_mflow(&meta, &flows, &mut donor);
-        const N: usize = NOT_A_DONOR;
-        assert_eq!(donor, &[
-        //   0 1 2 3 4 5 6 7
-            [N,N,N,N,N,4,N,N], [N,N,N,N,N,N,4,N], [N;8], // N
-            [N;8], [N;8], [N;8], // 1
-            [N;8], [N;8], [N;8], // 2
-        ]);
-        assert_eq!(flows, vec![
-            [0.0;8],[0.0;8],[0.0;8],
-            [0.0;8],[0.0,0.590334470601733,0.40966552939826695,0.0,0.0, 0.0, 0.0, 0.0],[0.0;8],
-            [0.0;8],[0.0;8],[0.0;8],
-        ]);
-        let mut stack = Vec::with_capacity(9);
-        let mut levels = Vec::with_capacity(3);
-        generate_order_mflow(&meta, &mut nrec, &donor, &mut stack, &mut levels);
-        assert_eq!(&stack, &[
-            0,1,2,3,5,6,7,8,4
-        ]);
-        assert_eq!(&levels, &[0,8,9]);
-    }
-
-    #[test]
-    #[rustfmt::skip]
-    fn test_dinf_donors_4() {
-        let meta = GridMeta::new(4, 4);
-        let h = consts::H_4;
-        let mut flows = vec![[0.0;8];meta.size];
-        let mut nrec = vec![0;meta.size];
-        fm_dinf(&meta, &h, &mut flows, &mut nrec);
-        let mut donor = vec![[0;8];meta.size];
-        compute_donors_mflow(&meta, &flows, &mut donor);
-        const N: usize = NOT_A_DONOR;
-        assert_eq!(donor, &[
-        //   0 1 2 3 4 5 6 7
-            [N,N,N,N,N,5,N,N], [N,N,N,N,N, 6,5,N], [N,N,N,N,N,N, 6,N], [N;8], // N
-            [N,N,N,N,N,9,N,N], [N,N,N,N,N,10,9,N],[N,N,N,N,N,N,10,N], [N;8], // 1
-            [N,N,N,N,N,N,N,N], [N,N,N,N,N, N,N,N],[N;8], [N;8], // 2
-            [N;8],[N;8],[N;8],[N;8], // 3
-        ]);
-
-        
-        let mut stack = vec![0;meta.size];
-        let mut levels = Vec::with_capacity(4);
-        generate_order_mflow(&meta, &mut nrec, &donor, &mut stack, &mut levels);
-        assert_eq!(stack, &[
-        //  0  1  2  3  4  5  6  7   8   9   10  11
-            0, 1, 2, 3, 4, 7, 8, 11, 12, 13, 14, 15,
-        //  12 13
-            5, 6,
-        //  14 15
-            9, 10
-        ]);
-        assert_eq!(levels, &[0,12,14,16]);
-        let mut lvls = Vec::with_capacity(levels.len()-1);
-        for w in levels.windows(2).take(levels.len()-1) {
-            lvls.push(&stack[w[0]..w[1]])
-        }
-        assert_eq!(lvls, vec![
-            vec![0,1,2,3,4,7,8,11,12,13,14,15],
-            vec![5,6],
-            vec![9,10],
-        ]);
-        let mut acc = vec![1.0;meta.size];
-        let order = Order::from_dem_metric(meta, &consts::H_4, &mut Dinf).unwrap();
-        order.for_lvls_top_down(&mut acc, |c| {
-            *c.cell() += c.donors().iter().map(|(a,b)| a*b).sum::<f64>()
-        });
-        assert_eq!(&acc, &[
-            2.180668941203466, 2.6515052128193717, 1.5774913753754292, 1.0,
-            1.590334470601733, 2.0, 1.409665529398267, 1.0,
-            1.0, 1.0, 1.0, 1.0,
-            1.0, 1.0, 1.0, 1.0
-        ]);
     }
 }

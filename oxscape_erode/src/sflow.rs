@@ -1,7 +1,8 @@
 use crate::{Params, add_uplift};
-use oxscape::sflow::Order;
-use oxscape::sflow::metrics::D8;
-use oxscape::{DR, GridMeta, Result};
+use oxscape_contour::sflow::Order;
+use oxscape_contour::sflow::metrics::D8;
+use oxscape_core::Result;
+use oxscape_core::{DR, GridMeta};
 
 pub fn accum(order: &Order, params: &Params, accum: &mut [f64]) {
     accum.fill(params.cell_area);
@@ -47,8 +48,7 @@ pub fn run(nstep: usize, meta: &GridMeta, params: &Params, dem: &mut [f64]) -> R
 #[cfg(test)]
 mod test {
     use super::*;
-    use oxscape::GridMeta;
-    use oxscape::sflow::Order;
+    use oxscape_contour::sflow::Order;
 
     const META: GridMeta = GridMeta::new(6, 6);
     #[rustfmt::skip]

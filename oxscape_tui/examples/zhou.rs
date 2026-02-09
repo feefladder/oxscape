@@ -3,8 +3,7 @@
 use std::time::Duration;
 
 use color_eyre::eyre::Result;
-use ordered_float::OrderedFloat;
-use oxscape::GridMeta;
+use oxscape_core::GridMeta;
 use oxscape_tile::fill_deps::fill::NOT_FILLED;
 use oxscape_tui::tile::Tile;
 use ratatui::crossterm::event::{self, Event, KeyCode};
@@ -26,8 +25,8 @@ fn main() -> Result<()> {
 
     let (meta, dem) = dem();
     let labels = vec![NOT_FILLED; dem.len()];
-    let min = dem.map(|v| OrderedFloat(v)).iter().min().unwrap().0;
-    let max = dem.map(|v| OrderedFloat(v)).iter().max().unwrap().0;
+    let min = *dem.iter().min_by(|a, b| a.total_cmp(b)).unwrap();
+    let max = *dem.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
     let mut tile = Tile::new(
         dem.to_vec(),
         labels,

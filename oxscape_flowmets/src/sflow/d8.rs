@@ -1,6 +1,6 @@
-use crate::sflow::NO_FLOW;
-use crate::{DR, GridMeta};
 use num_traits::Float;
+use oxscape_core::NO_FLOW;
+use oxscape_core::{DR, GridMeta};
 use rayon::prelude::*;
 
 ///The receiver of a focal cell is the cell which receives the focal cells'
@@ -9,14 +9,14 @@ use rayon::prelude::*;
 ///the special value `NO_FLOW` is assigned.
 pub fn compute_receivers<T: Float + From<f64> + Sync>(meta: &GridMeta, h: &[T], rec: &mut [u8]) {
     rec.fill(NO_FLOW);
-    rec.par_chunks_exact_mut(meta.width)
+    rec.par_chunks_exact_mut(meta.width())
         .enumerate()
-        .take(meta.height - 1)
+        .take(meta.height() - 1)
         .skip(1)
         .for_each(|(y, row)| {
             #[allow(clippy::needless_range_loop)]
-            for x in 1..meta.width - 1 {
-                let c: usize = y * meta.width + x;
+            for x in 1..meta.width() - 1 {
+                let c: usize = y * meta.width() + x;
 
                 let mut max_slope = T::zero();
                 let mut max_n = NO_FLOW;
@@ -63,7 +63,7 @@ mod test {
     }
     #[test]
     fn test_compute_receivers() {
-        let mut rec = vec![NO_FLOW; META.size];
+        let mut rec = vec![NO_FLOW; META.size()];
         compute_receivers(&META, &consts::H_INIT, &mut rec);
         assert_eq!(rec, consts::REC);
     }

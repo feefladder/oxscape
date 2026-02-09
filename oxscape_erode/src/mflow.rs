@@ -1,6 +1,6 @@
 use crate::Params;
-use oxscape::DR;
-use oxscape::mflow::{NO_FLOW_GEN, Order};
+use oxscape_contour::mflow::Order;
+use oxscape_core::{DR, NO_FLOW_GEN};
 
 pub fn accum(order: &Order, params: &Params, accum: &mut [f64]) {
     // initialize to cell area

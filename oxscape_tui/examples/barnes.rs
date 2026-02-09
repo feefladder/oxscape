@@ -2,16 +2,13 @@ use std::time::Duration;
 
 use color_eyre::Result;
 use itertools::Itertools;
-use oxscape::GridMeta;
+use oxscape_core::GridMeta;
 use oxscape_tile::fill_deps::fill::NOT_FILLED;
-use oxscape_tile::fill_deps::graph::SuperGraph;
-use oxscape_tile::fill_deps::grid::VecFillGrid;
 use oxscape_tile::tile::TileCoord;
 use oxscape_tui::tile::Tile;
 use oxscape_tui::tile_grid::{TiledSim, TiledSimStep};
 use ratatui::crossterm::event::{self, Event, KeyCode};
 use ratatui::layout::{Constraint, Layout};
-use ratatui::symbols::line;
 use ratatui::text::{Line, Text};
 
 /// The tiled dem from Barnes' paper

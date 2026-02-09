@@ -25,9 +25,8 @@ use std::{collections::HashMap, fmt::Debug, sync::Arc};
 use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
 use bytemuck::{AnyBitPattern, NoUninit, cast_slice, cast_slice_mut};
-use num_traits::float::TotalOrder;
-use ordered_float::FloatCore;
-use oxscape::GridMeta;
+use num_traits::float::{FloatCore, TotalOrder};
+use oxscape_core::GridMeta;
 
 use crate::{
     fill_deps::{

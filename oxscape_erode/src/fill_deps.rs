@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use ordered_float::OrderedFloat;
-use oxscape::{GridMeta, Result};
+use oxscape_core::{GridMeta, Result};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, VecDeque};
 
