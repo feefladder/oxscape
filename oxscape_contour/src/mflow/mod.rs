@@ -6,10 +6,16 @@ pub mod metrics;
 use rayon::prelude::*;
 
 use crate::NOT_A_DONOR;
-use oxscape_core::{GridMeta, NO_FLOW_GEN};
+use oxscape_core::{GridMeta, NO_FLOW_GEN, Result, error::GridError};
 
 #[allow(clippy::cast_possible_truncation)] // cast 0..8 to u8
-pub fn compute_donors_mflow(meta: &GridMeta, flows: &[[f64; 8]], donor: &mut [[usize; 8]]) {
+pub fn compute_donors_mflow(
+    meta: &GridMeta,
+    flows: &[[f64; 8]],
+    donor: &mut [[usize; 8]],
+) -> Result<(), GridError> {
+    meta.check(flows)?;
+    meta.check(donor)?;
     donor.fill([NOT_A_DONOR; 8]);
     donor.par_iter_mut().enumerate().for_each(|(i, don)| {
         let (x, y) = meta.i_to_xy(i);
@@ -24,6 +30,7 @@ pub fn compute_donors_mflow(meta: &GridMeta, flows: &[[f64; 8]], donor: &mut [[u
             }
         }
     });
+    Ok(())
 }
 
 ///Cells must be ordered so that they can be traversed such that higher cells

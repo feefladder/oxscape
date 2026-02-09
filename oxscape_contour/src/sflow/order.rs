@@ -1,8 +1,8 @@
+use std::any::Any;
 use std::{error::Error, fmt::Debug};
 
 use crate::{Bazooka, ContourError, NOT_A_DONOR};
-use anyhow::anyhow;
-use exn::{Exn, ResultExt};
+use exn::{OptionExt, ResultExt};
 use num_traits::{Float, Zero};
 use oxscape_core::{GridMeta, NO_FLOW, Result, error::GridError};
 use rayon::prelude::*;
@@ -66,34 +66,45 @@ fn compute_donors(meta: &GridMeta, rec: &[u8], donor: &mut [[usize; 8]]) {
 /// This function SHOULD give:
 /// - `NOT_A_DONOR` on all non-donor directions of all cells
 /// - the index of the donor otherwise
-fn compute_donors_par(meta: &GridMeta, rec: &[u8], donors: &mut [[usize; 8]]) {
+fn compute_donors_par(
+    meta: &GridMeta,
+    rec: &[u8],
+    donors: &mut [[usize; 8]],
+) -> Result<(), GridError> {
     // In the single-flow case, it's more efficient to iterate receivers
     // because we don't have to check all neighbours of a donor
-    assert_eq!(donors.len(), meta.size());
+    meta.check(donors)?;
+    meta.check(rec)?;
     donors.fill([NOT_A_DONOR; 8]);
     // cast &mut [[usize;8]] to &mut [usize] so we can access cell's directions
     // in parallel without aliasing problems
     let d_usize: &mut [usize] = bytemuck::cast_slice_mut(donors);
     let b = Bazooka(d_usize.as_mut_ptr());
     let r = &b;
-    rec.par_iter().enumerate().for_each(|(idx, dir)| {
-        if *dir == NO_FLOW {
-            return;
-        }
-        //If this cell passes flow to a downhill cell, make a note of it in that
-        //downhill cell's donor array at the direction's index
-        let n: usize = meta.shift(idx, *dir);
-        // bounds check
-        assert!(n < meta.size());
-        // SAFETY: we are in-bounds: `donors.len()==meta.size>n`
-        let addr = unsafe { r.0.add(n * 8 + GridMeta::rev(usize::from(*dir))) };
-        // SAFETY: we are the only cell from this direction.
-        //
-        // that is: other cells will write to different direction indices in this array
-        unsafe {
-            *addr = idx;
-        }
-    });
+    rec.par_iter()
+        .enumerate()
+        .try_for_each(|(idx, dir)| -> Result<(), GridError> {
+            if *dir == NO_FLOW {
+                return Ok(());
+            }
+            //If this cell passes flow to a downhill cell, make a note of it in that
+            //downhill cell's donor array at the direction's index
+            let (x, y) = meta.i_to_xy(idx);
+            let n: usize = meta
+                .try_shift(x, y, *dir)
+                .ok_or_raise(|| GridError::out_of_bounds(x, y, *dir))?;
+            // bounds check
+            assert!(n < meta.size());
+            // SAFETY: we are in-bounds: `donors.len()==meta.size()>n`
+            let addr = unsafe { r.0.add(n * 8 + GridMeta::rev(usize::from(*dir))) };
+            // SAFETY: we are the only cell from this direction.
+            //
+            // that is: other cells will write to different direction indices in this array
+            unsafe {
+                *addr = idx;
+            }
+            Ok(())
+        })
 }
 
 ///Cells must be ordered so that they can be traversed such that higher cells
@@ -275,6 +286,11 @@ impl Order {
     }
 
     #[must_use]
+    pub fn donors(&self) -> &[[usize; 8]] {
+        &self.donors
+    }
+
+    #[must_use]
     pub fn receivers(&self) -> &[u8] {
         &self.receivers
     }
@@ -331,7 +347,14 @@ impl Order {
         metric
             .metric(&self.meta, dem, &mut self.receivers)
             .or_raise(|| ContourError::metric_failed(&metric))?;
-        compute_donors_par(&self.meta, &self.receivers, &mut self.donors);
+        compute_donors_par(&self.meta, &self.receivers, &mut self.donors).or_raise(|| {
+            ContourError::permanent(format!(
+                "meta size {} doesn't match internal donors {} or receivers {}",
+                self.meta().size(),
+                self.donors.len(),
+                self.receivers.len()
+            ))
+        })?;
         generate_order(
             &self.receivers,
             &self.donors,
@@ -494,6 +517,16 @@ mod test {
     }
 
     #[test]
+    fn test_proptest() {
+        let rec = [4, 4, 4, 6, 2, 0, 0, 0, 2, 0, 0, 6, 2, 0, 0, 8];
+        let mut donors = [[NOT_A_DONOR; 8]; 16];
+        compute_donors_par(&GridMeta::new(4, 4), &rec, &mut donors).unwrap();
+        let mut stack = Vec::with_capacity(16);
+        let mut levels = Vec::with_capacity(16);
+        generate_order(&rec, &donors, &mut stack, &mut levels);
+    }
+
+    #[test]
     #[ignore = "Hour long test"]
     fn test_generate_order_exhaustive() {
         // cargo test --release -- order_d8::test::test_generate_order_exhaustive --ignored --nocapture
@@ -633,14 +666,21 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "n < meta.size")]
     fn test_par_donors_oob() {
         let meta = &GridMeta::new(3, 1);
         // these say that there are out-of-bounds receivers
         let rec = [6, 6, 6];
         let mut donors = [[NOT_A_DONOR; 8]; 3];
         // this will access out-of-bounds memory addresses, which we catch
-        compute_donors_par(meta, &rec, &mut donors);
+        assert_eq!(
+            compute_donors_par(meta, &rec, &mut donors)
+                .unwrap_err()
+                .frame()
+                .error()
+                .downcast_ref::<GridError>()
+                .unwrap(),
+            &GridError::out_of_bounds(0, 0, 6)
+        );
     }
 
     #[test]

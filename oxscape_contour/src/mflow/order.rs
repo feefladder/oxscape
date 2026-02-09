@@ -172,7 +172,14 @@ impl Order {
         metric
             .metric(&self.meta, dem, &mut self.flows, &mut self.nrec)
             .or_raise(|| ContourError::metric_failed(&metric))?;
-        compute_donors_mflow(&self.meta, &self.flows, &mut self.donors);
+        compute_donors_mflow(&self.meta, &self.flows, &mut self.donors).or_raise(|| {
+            ContourError::permanent(format!(
+                "meta size {} doesn't match internal donors {} or flows {}",
+                self.meta().size(),
+                self.donors.len(),
+                self.flows.len()
+            ))
+        })?;
         generate_order_mflow(
             &self.meta,
             &mut self.nrec,

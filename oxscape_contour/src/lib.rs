@@ -34,10 +34,11 @@ pub struct ContourError {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ContourErrorKind {
     MetricFailed,
     InvalidArray,
-    OutOfBoundsIndex,
+    Other,
 }
 
 impl ContourError {
@@ -54,6 +55,14 @@ impl ContourError {
             status: ErrorStatus::Permanent,
             kind: ContourErrorKind::InvalidArray,
             message: format!("array of length {array_size} invalid for this `Order`"),
+        }
+    }
+
+    fn permanent(message: String) -> Self {
+        Self {
+            status: ErrorStatus::Permanent,
+            kind: ContourErrorKind::Other,
+            message,
         }
     }
 }

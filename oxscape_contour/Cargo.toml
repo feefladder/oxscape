@@ -11,10 +11,12 @@ num-traits = "0.2.19"
 rayon = "1.11"
 oxscape_core = {version = "0.1", path = "../oxscape_core"}
 oxscape_flowmets = {version = "0.1", path = "../oxscape_flowmets", optional = true}
-anyhow = "1.0.101"
 exn = "0.3.0"
 
 [features]
 default = ["metrics"]
 metrics = ["dep:oxscape_flowmets"]
+
+[dev-dependencies]
+proptest = "1.10.0"
 
