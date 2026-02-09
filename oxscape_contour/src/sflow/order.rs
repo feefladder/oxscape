@@ -1,7 +1,10 @@
-use crate::{Bazooka, NOT_A_DONOR};
+use std::{error::Error, fmt::Debug};
+
+use crate::{Bazooka, ContourError, NOT_A_DONOR};
 use anyhow::anyhow;
+use exn::{Exn, ResultExt};
 use num_traits::{Float, Zero};
-use oxscape_core::{GridMeta, NO_FLOW, Result};
+use oxscape_core::{GridMeta, NO_FLOW, Result, error::GridError};
 use rayon::prelude::*;
 
 #[allow(clippy::cast_precision_loss)]
@@ -27,7 +30,8 @@ pub fn generate_boring_terrain(dem: &mut [f64], start: f64, delta: f64) {
 /// ];
 ///
 /// ```
-pub trait FlowMetric {
+pub trait FlowMetric: Debug {
+    type Error: Error + Send + Sync + 'static;
     /// Implement the metric on the dem.
     #[allow(clippy::missing_errors_doc)] // users implement this
     fn metric<T: Float + From<f64> + Sync>(
@@ -35,7 +39,7 @@ pub trait FlowMetric {
         meta: &GridMeta,
         dem: &[T],
         receivers: &mut [u8],
-    ) -> Result<()>;
+    ) -> Result<(), Self::Error>;
 }
 
 #[cfg(test)]
@@ -302,10 +306,9 @@ impl Order {
         meta: GridMeta,
         dem: &[f64],
         metric: &mut M,
-    ) -> Result<Self> {
-        if meta.size() != dem.len() {
-            return Err(anyhow!("meta dem mismatch"));
-        }
+    ) -> Result<Self, ContourError> {
+        meta.check(dem)
+            .or_raise(|| ContourError::invalid_array(dem.len()))?;
         let mut s = Self::empty(meta);
         s.reorder(dem, metric)?;
         Ok(s)
@@ -317,11 +320,17 @@ impl Order {
     ///
     /// - if the supplied dem doesn't match the grid
     /// - if the supplied metric gives an error
-    pub fn reorder<M: FlowMetric>(&mut self, dem: &[f64], metric: &mut M) -> Result<()> {
-        if self.meta.size() != dem.len() {
-            return Err(anyhow!("meta dem mismatch"));
-        }
-        metric.metric(&self.meta, dem, &mut self.receivers)?;
+    pub fn reorder<M: FlowMetric>(
+        &mut self,
+        dem: &[f64],
+        metric: &mut M,
+    ) -> Result<(), ContourError> {
+        self.meta
+            .check(dem)
+            .or_raise(|| ContourError::invalid_array(dem.len()))?;
+        metric
+            .metric(&self.meta, dem, &mut self.receivers)
+            .or_raise(|| ContourError::metric_failed(&metric))?;
         compute_donors_par(&self.meta, &self.receivers, &mut self.donors);
         generate_order(
             &self.receivers,

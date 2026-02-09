@@ -1,13 +1,20 @@
 use num_traits::Float;
 use oxscape_core::NO_FLOW;
-use oxscape_core::{DR, GridMeta};
+use oxscape_core::error::GridError;
+use oxscape_core::{DR, GridMeta, Result};
 use rayon::prelude::*;
 
 ///The receiver of a focal cell is the cell which receives the focal cells'
 ///flow. Here, we model the receiving cell as being the one connected to the
 ///focal cell by the steepest gradient. If there is no local gradient, then
 ///the special value `NO_FLOW` is assigned.
-pub fn compute_receivers<T: Float + From<f64> + Sync>(meta: &GridMeta, h: &[T], rec: &mut [u8]) {
+pub fn compute_receivers<T: Float + From<f64> + Sync>(
+    meta: &GridMeta,
+    h: &[T],
+    rec: &mut [u8],
+) -> Result<(), GridError> {
+    meta.check(h)?;
+    meta.check(rec)?;
     rec.fill(NO_FLOW);
     rec.par_chunks_exact_mut(meta.width())
         .enumerate()
@@ -31,6 +38,7 @@ pub fn compute_receivers<T: Float + From<f64> + Sync>(meta: &GridMeta, h: &[T], 
                 row[x] = max_n;
             }
         });
+    Ok(())
 }
 
 #[cfg(test)]
@@ -64,7 +72,7 @@ mod test {
     #[test]
     fn test_compute_receivers() {
         let mut rec = vec![NO_FLOW; META.size()];
-        compute_receivers(&META, &consts::H_INIT, &mut rec);
+        compute_receivers(&META, &consts::H_INIT, &mut rec).unwrap();
         assert_eq!(rec, consts::REC);
     }
 }

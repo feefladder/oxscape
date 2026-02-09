@@ -1,4 +1,5 @@
-use crate::{Params, add_uplift};
+use crate::{ErodeError, Params, add_uplift};
+use exn::ResultExt;
 use oxscape_contour::sflow::Order;
 use oxscape_contour::sflow::metrics::D8;
 use oxscape_core::Result;
@@ -33,11 +34,18 @@ pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {
     });
 }
 
-pub fn run(nstep: usize, meta: &GridMeta, params: &Params, dem: &mut [f64]) -> Result<()> {
+pub fn run(
+    nstep: usize,
+    meta: &GridMeta,
+    params: &Params,
+    dem: &mut [f64],
+) -> Result<(), ErodeError> {
     let mut order = Order::empty(meta.clone());
     let mut acc = vec![0.0; order.meta().size()];
-    for _ in 0..nstep {
-        order.reorder(dem, &mut D8)?;
+    for step in 0..nstep {
+        order
+            .reorder(dem, &mut D8)
+            .or_raise(|| ErodeError(format!("failed to reorder in step {step}")))?;
         accum(&order, params, &mut acc);
         add_uplift(order.meta(), params, dem);
         erode(&order, params, &acc, dem);

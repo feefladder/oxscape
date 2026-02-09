@@ -1,6 +1,8 @@
 #![warn(clippy::pedantic)]
 pub mod mflow;
 pub mod sflow;
+use std::{error::Error, fmt::Display};
+
 use rayon::prelude::*;
 
 #[cfg(feature = "fill")]
@@ -47,3 +49,12 @@ pub fn add_uplift(meta: &GridMeta, params: &Params, dem: &mut [f64]) {
             }
         });
 }
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ErodeError(String);
+impl Display for ErodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+impl Error for ErodeError {}

@@ -1,20 +1,22 @@
 use crate::mflow::FlowMetric;
-use anyhow::Result;
-use oxscape_core::GridMeta;
+
+use oxscape_core::{GridMeta, Result, error::GridError};
 
 use oxscape_flowmets::mflow::dinf::fm_dinf;
 
+#[derive(Debug)]
 pub struct Dinf;
 
 // SAFETY: fm_dinf makes flow only point downstream (no cycles) and skips the edges of the grid (no x-wrapping or y-out-of-bounds-ness)
 unsafe impl FlowMetric for Dinf {
+    type Error = GridError;
     fn metric(
         &mut self,
         meta: &GridMeta,
         dem: &[f64],
         flows: &mut [[f64; 8]],
         nrec: &mut [u8],
-    ) -> Result<()> {
+    ) -> Result<(), Self::Error> {
         fm_dinf(meta, dem, flows, nrec);
         Ok(())
     }

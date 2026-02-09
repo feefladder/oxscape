@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use oxscape_core::{GridMeta, XSHIFT, YSHIFT};
+use oxscape_core::{Dir, GridMeta, XSHIFT, YSHIFT};
 
 use crate::{
     TLabel,
@@ -18,8 +18,8 @@ pub trait FillGrid<T> {
         T: 'a;
     fn n_tiles(&self) -> usize;
     fn tile(&self, coord: &TileCoord) -> &FillData<T>;
-    fn edge(&self, coord: &TileCoord, dir: u8) -> (&[TLabel], &[T]);
-    fn neighbour(&self, coord: &TileCoord, dir: u8) -> Option<TileCoord>;
+    fn edge(&self, coord: &TileCoord, dir: Dir) -> (&[TLabel], &[T]);
+    fn neighbour(&self, coord: &TileCoord, dir: Dir) -> Option<TileCoord>;
 }
 
 pub struct VecFillGrid<T> {
@@ -50,7 +50,7 @@ impl<T> FillGrid<T> for VecFillGrid<T> {
     {
         self.data.iter()
     }
-    fn edge(&self, coord: &TileCoord, dir: u8) -> (&[TLabel], &[T]) {
+    fn edge(&self, coord: &TileCoord, dir: Dir) -> (&[TLabel], &[T]) {
         let fd = self.tile(coord);
         let range = fd.tile_info.meta.skirt_range(dir);
         (&fd.label_edges[range.clone()], &fd.dem_edges[range])
@@ -58,9 +58,9 @@ impl<T> FillGrid<T> for VecFillGrid<T> {
     fn tile(&self, coord: &TileCoord) -> &FillData<T> {
         &self.data[self.meta.xy_to_i(coord.x, coord.y)]
     }
-    fn neighbour(&self, coord: &TileCoord, dir: u8) -> Option<TileCoord> {
+    fn neighbour(&self, coord: &TileCoord, dir: Dir) -> Option<TileCoord> {
         self.meta
-            .try_shift(coord.x, coord.y, dir)
+            .try_shift(coord.x, coord.y, dir as u8)
             .map(|i| self.meta.i_to_xy(i).into())
     }
 }
@@ -85,7 +85,7 @@ impl<T> FillGrid<T> for HashMapFillGrid<T> {
         &self.grid[coord]
     }
 
-    fn edge(&self, coord: &TileCoord, dir: u8) -> (&[TLabel], &[T]) {
+    fn edge(&self, coord: &TileCoord, dir: Dir) -> (&[TLabel], &[T]) {
         let fill_data = &self.grid[coord];
         let range = fill_data.tile_info.meta().skirt_range(dir);
         (
@@ -94,7 +94,7 @@ impl<T> FillGrid<T> for HashMapFillGrid<T> {
         )
     }
 
-    fn neighbour(&self, my_coord: &TileCoord, dir: u8) -> Option<TileCoord> {
+    fn neighbour(&self, my_coord: &TileCoord, dir: Dir) -> Option<TileCoord> {
         let Ok(x) = usize::try_from(my_coord.x as isize + XSHIFT[dir as usize]) else {
             return None;
         };

@@ -5,19 +5,7 @@ use std::{
 
 use num_traits::Bounded;
 
-use oxscape_core::{EdgeIterator, GridMeta};
-
-#[allow(unused)]
-enum Dir {
-    Left = 0,
-    TopLeft = 1,
-    Top = 2,
-    TopRight = 3,
-    Right = 4,
-    BotRight = 5,
-    Bot = 6,
-    BotLeft = 7,
-}
+use crate::{Dir, EdgeIterator, GridMeta};
 
 /// A unified way to work with different underlying data structures as if they are normal arrays
 ///
@@ -33,7 +21,7 @@ pub trait Array2D<T>: Index<(usize, usize), Output = T> + IndexMut<(usize, usize
     ///
     fn meta(&self) -> &GridMeta;
 
-    fn edge<'a>(&'a self, dir: u8) -> impl Iterator<Item = &'a T>
+    fn edge<'a>(&'a self, dir: Dir) -> impl Iterator<Item = &'a T>
     where
         T: 'a;
 }
@@ -42,8 +30,8 @@ pub trait Array2D<T>: Index<(usize, usize), Output = T> + IndexMut<(usize, usize
 ///
 /// Mainly to allow `some_fn(meta: &GridMeta, dem: &mut [T])`-type wrappers:
 /// ```
-/// # use oxscape::GridMeta;
-/// # use oxscape_tile::array_2d::{Array2D, BorrowedArray2D};
+/// # use oxscape_core::GridMeta;
+/// # use oxscape_core::array_2d::{Array2D, BorrowedArray2D};
 /// fn some_fn(meta: &GridMeta, dem: &mut [f64]) {
 ///     let mut arr2d = BorrowedArray2D::new(meta, dem);
 ///     some_arr2d_fn(&mut arr2d);
@@ -90,7 +78,7 @@ impl<T> Array2D<T> for BorrowedArray2D<'_, T> {
     /// 7 6 5
     /// ```
     #[rustfmt::skip]
-    fn edge<'a>(&'a self, dir: u8) -> impl Iterator<Item = &'a T> where T: 'a {
+    fn edge<'a>(&'a self, dir: Dir) -> impl Iterator<Item = &'a T> where T: 'a {
         self.meta.edge(self.data, dir)
     }
 }
@@ -141,39 +129,38 @@ impl<T: Bounded + Clone + Debug> SkirtedTile<T> {
         }
     }
 
-    pub fn add_edge<'a>(&mut self, edge: EdgeIterator<'a, T>, dir: u8) {
-        self.has_edges |= 1 << dir;
+    pub fn add_edge<'a>(&mut self, edge: EdgeIterator<'a, T>, dir: Dir) {
+        self.has_edges |= 1 << dir as u8;
         for (new, old) in edge.zip(&mut self.skirt[self.meta.skirt_range(dir)]) {
-            println!("adding value: {new:?}");
             *old = new.clone()
         }
     }
 
-    pub fn inner_edge<'a>(&'a self, dir: u8) -> EdgeIterator<'a, T> {
+    pub fn inner_edge<'a>(&'a self, dir: Dir) -> EdgeIterator<'a, T> {
         self.meta.edge(&self.center, dir)
     }
 }
 
 impl<T> SkirtedTile<T> {
-    pub const fn which_edge(&self, x: usize, y: usize) -> Option<u8> {
+    pub const fn which_edge(&self, x: usize, y: usize) -> Option<Dir> {
         let height = self.meta.height() + 1;
         let width = self.meta.width() + 1;
         if x == 0 && y > 0 && y < height {
-            Some(0)
+            Some(Dir::Left)
         } else if x == 0 && y == 0 {
-            Some(1)
+            Some(Dir::TopLeft)
         } else if y == 0 && x > 0 && x < width {
-            Some(2)
+            Some(Dir::Top)
         } else if y == 0 && x == width {
-            Some(3)
+            Some(Dir::TopRight)
         } else if x == width && y > 0 && y < height {
-            Some(4)
+            Some(Dir::Right)
         } else if x == width && y == height {
-            Some(5)
+            Some(Dir::BotRight)
         } else if y == height && x > 0 && x < width {
-            Some(6)
+            Some(Dir::Bot)
         } else if x == 0 && y == height {
-            Some(7)
+            Some(Dir::BotLeft)
         } else {
             None
         }
@@ -185,17 +172,12 @@ impl<T> Index<(usize, usize)> for SkirtedTile<T> {
     fn index(&self, index: (usize, usize)) -> &Self::Output {
         let (x, y) = index;
         if let Some(dir) = self.which_edge(x, y) {
-            if dir % 2 == 1 {
-                // corner
-                &self.skirt[self.meta.skirt_range(dir).start]
-            } else if dir == 0 || dir == 4 {
-                // left or right
-                &self.skirt[y - 1 + self.meta.skirt_range(dir).start]
-            } else if dir == 2 || dir == 6 {
-                // top or bottom
-                &self.skirt[x - 1 + self.meta.skirt_range(dir).start]
-            } else {
-                unreachable!()
+            match dir {
+                Dir::TopLeft | Dir::TopRight | Dir::BotLeft | Dir::BotRight => {
+                    &self.skirt[self.meta.skirt_range(dir).start]
+                }
+                Dir::Left | Dir::Right => &self.skirt[y - 1 + self.meta.skirt_range(dir).start],
+                Dir::Top | Dir::Bot => &self.skirt[x - 1 + self.meta.skirt_range(dir).start],
             }
         } else {
             &self.center[self.meta.xy_to_i(x - 1, y - 1)]
@@ -207,17 +189,12 @@ impl<T> IndexMut<(usize, usize)> for SkirtedTile<T> {
     fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
         let (x, y) = index;
         if let Some(dir) = self.which_edge(x, y) {
-            if dir % 2 == 1 {
-                // corner
-                &mut self.skirt[self.meta.skirt_range(dir).start]
-            } else if dir == 0 || dir == 4 {
-                // left or right
-                &mut self.skirt[y - 1 + self.meta.skirt_range(dir).start]
-            } else if dir == 2 || dir == 6 {
-                // top or bottom
-                &mut self.skirt[x - 1 + self.meta.skirt_range(dir).start]
-            } else {
-                unreachable!()
+            match dir {
+                Dir::TopLeft | Dir::TopRight | Dir::BotLeft | Dir::BotRight => {
+                    &mut self.skirt[self.meta.skirt_range(dir).start]
+                }
+                Dir::Left | Dir::Right => &mut self.skirt[y - 1 + self.meta.skirt_range(dir).start],
+                Dir::Top | Dir::Bot => &mut self.skirt[x - 1 + self.meta.skirt_range(dir).start],
             }
         } else {
             &mut self.center[self.meta.xy_to_i(x - 1, y - 1)]
@@ -230,7 +207,7 @@ impl<T> Array2D<T> for SkirtedTile<T> {
         &self.skirted_meta
     }
 
-    fn edge<'a>(&'a self, dir: u8) -> impl Iterator<Item = &'a T>
+    fn edge<'a>(&'a self, dir: Dir) -> impl Iterator<Item = &'a T>
     where
         T: 'a,
     {
@@ -241,6 +218,7 @@ impl<T> Array2D<T> for SkirtedTile<T> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::Dir::*;
 
     #[test]
     #[rustfmt::skip]
@@ -253,14 +231,14 @@ mod test {
         ];
         let meta = GridMeta::new(4, 4);
         let arr2d = SkirtedTile::new(meta, arr);
-        assert_eq!(arr2d.inner_edge(0).map(|v|*v).collect::<Vec<_>>(), &[0,4,8,12]);
-        assert_eq!(arr2d.inner_edge(1).map(|v|*v).collect::<Vec<_>>(), &[0]);
-        assert_eq!(arr2d.inner_edge(2).map(|v|*v).collect::<Vec<_>>(), &[0,1,2,3]);
-        assert_eq!(arr2d.inner_edge(3).map(|v|*v).collect::<Vec<_>>(), &[3]);
-        assert_eq!(arr2d.inner_edge(4).map(|v|*v).collect::<Vec<_>>(), &[3,7,11,15]);
-        assert_eq!(arr2d.inner_edge(5).map(|v|*v).collect::<Vec<_>>(), &[15]);
-        assert_eq!(arr2d.inner_edge(6).map(|v|*v).collect::<Vec<_>>(), &[12,13,14,15]);
-        assert_eq!(arr2d.inner_edge(7).map(|v|*v).collect::<Vec<_>>(), &[12]);
+        assert_eq!(arr2d.inner_edge(Left)    .map(|v|*v).collect::<Vec<_>>(), &[0,4,8,12]);
+        assert_eq!(arr2d.inner_edge(TopLeft) .map(|v|*v).collect::<Vec<_>>(), &[0]);
+        assert_eq!(arr2d.inner_edge(Top)     .map(|v|*v).collect::<Vec<_>>(), &[0,1,2,3]);
+        assert_eq!(arr2d.inner_edge(TopRight).map(|v|*v).collect::<Vec<_>>(), &[3]);
+        assert_eq!(arr2d.inner_edge(Right)   .map(|v|*v).collect::<Vec<_>>(), &[3,7,11,15]);
+        assert_eq!(arr2d.inner_edge(BotRight).map(|v|*v).collect::<Vec<_>>(), &[15]);
+        assert_eq!(arr2d.inner_edge(Bot)     .map(|v|*v).collect::<Vec<_>>(), &[12,13,14,15]);
+        assert_eq!(arr2d.inner_edge(BotLeft) .map(|v|*v).collect::<Vec<_>>(), &[12]);
     }
 
     #[test]
@@ -291,21 +269,21 @@ mod test {
                 14,15,
         ]);
         const M: i32 = i32::max_value();
-        assert_eq!(top_left.edge(0).map(|v|*v).collect::<Vec<_>>(), &[M,M]);
-        assert_eq!(top_left.edge(1).map(|v|*v).collect::<Vec<_>>(), &[M]);
-        assert_eq!(top_left.edge(2).map(|v|*v).collect::<Vec<_>>(), &[M,M]);
-        assert_eq!(top_left.edge(3).map(|v|*v).collect::<Vec<_>>(), &[M]);
-        assert_eq!(top_left.edge(4).map(|v|*v).collect::<Vec<_>>(), &[M,M]);
-        assert_eq!(top_left.edge(5).map(|v|*v).collect::<Vec<_>>(), &[M]);
-        assert_eq!(top_left.edge(6).map(|v|*v).collect::<Vec<_>>(), &[M,M]);
-        assert_eq!(top_left.edge(7).map(|v|*v).collect::<Vec<_>>(), &[M]);
+        assert_eq!(top_left.edge(Left).map(|v|*v).collect::<Vec<_>>(), &[M,M]);
+        assert_eq!(top_left.edge(TopLeft).map(|v|*v).collect::<Vec<_>>(), &[M]);
+        assert_eq!(top_left.edge(Top).map(|v|*v).collect::<Vec<_>>(), &[M,M]);
+        assert_eq!(top_left.edge(TopRight).map(|v|*v).collect::<Vec<_>>(), &[M]);
+        assert_eq!(top_left.edge(Right).map(|v|*v).collect::<Vec<_>>(), &[M,M]);
+        assert_eq!(top_left.edge(BotRight).map(|v|*v).collect::<Vec<_>>(), &[M]);
+        assert_eq!(top_left.edge(Bot).map(|v|*v).collect::<Vec<_>>(), &[M,M]);
+        assert_eq!(top_left.edge(BotLeft).map(|v|*v).collect::<Vec<_>>(), &[M]);
 
-        assert_eq!(top_right.inner_edge(Dir::Left as u8).map(|v|*v).collect::<Vec<_>>(), &[2,6]);
-        top_left.add_edge(top_right.inner_edge(Dir::Left as u8), Dir::Right as u8);
-        assert_eq!(bot_right.inner_edge(Dir::TopLeft as u8).map(|v|*v).collect::<Vec<_>>(), &[10]);
-        top_left.add_edge(bot_right.inner_edge(Dir::TopLeft as u8), Dir::BotRight as u8);
-        assert_eq!(bot_left.inner_edge(Dir::Top as u8).map(|v|*v).collect::<Vec<_>>(), &[8,9]);
-        top_left.add_edge(bot_left.inner_edge(Dir::Top as u8), Dir::Bot as u8);
+        assert_eq!(top_right.inner_edge(Dir::Left).map(|v|*v).collect::<Vec<_>>(), &[2,6]);
+        top_left.add_edge(top_right.inner_edge(Dir::Left), Dir::Right);
+        assert_eq!(bot_right.inner_edge(Dir::TopLeft).map(|v|*v).collect::<Vec<_>>(), &[10]);
+        top_left.add_edge(bot_right.inner_edge(Dir::TopLeft), Dir::BotRight);
+        assert_eq!(bot_left.inner_edge(Dir::Top).map(|v|*v).collect::<Vec<_>>(), &[8,9]);
+        top_left.add_edge(bot_left.inner_edge(Dir::Top), Dir::Bot);
 
         assert_eq!(top_left.skirt, &[M,M, M, M,M, M, 2,6, 10, 8,9, M]);
         let expected = [

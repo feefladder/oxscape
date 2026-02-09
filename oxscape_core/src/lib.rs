@@ -1,10 +1,16 @@
+use exn::Exn;
 use std::f64::consts::SQRT_2;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::ops::Range;
 
+use crate::Dir::*;
+use crate::error::GridError;
 use std::env;
 
-pub type Result<T> = anyhow::Result<T>;
+pub mod array_2d;
+pub mod error;
+
+pub type Result<T, E> = std::result::Result<T, Exn<E>>;
 
 pub const GIT_HASH: &str = env!("GIT_HASH");
 
@@ -16,6 +22,73 @@ pub const DR: [f64; 8] = [1.0, SQRT_2, 1.0, SQRT_2, 1.0, SQRT_2, 1.0, SQRT_2];
 pub const NO_FLOW: u8 = 8;
 pub const NO_FLOW_GEN: f64 = 0.0;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Dir {
+    Left = 0,
+    TopLeft = 1,
+    Top = 2,
+    TopRight = 3,
+    Right = 4,
+    BotRight = 5,
+    Bot = 6,
+    BotLeft = 7,
+}
+
+impl Display for Dir {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Left => write!(f, "Left"),
+            TopLeft => write!(f, "TopLeft"),
+            Top => write!(f, "Top"),
+            TopRight => write!(f, "TopRight"),
+            Right => write!(f, "Right"),
+            BotRight => write!(f, "BotRight"),
+            Bot => write!(f, "Bot"),
+            BotLeft => write!(f, "BotLeft"),
+        }
+    }
+}
+
+impl TryFrom<u8> for Dir {
+    type Error = Exn<GridError>;
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Left),
+            1 => Ok(TopLeft),
+            2 => Ok(Top),
+            3 => Ok(TopRight),
+            4 => Ok(Right),
+            5 => Ok(BotRight),
+            6 => Ok(Bot),
+            7 => Ok(BotLeft),
+            dir => Err(GridError::invalid_direction(dir).into()),
+        }
+    }
+}
+
+impl TryFrom<usize> for Dir {
+    type Error = Exn<GridError>;
+    fn try_from(value: usize) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Left),
+            1 => Ok(TopLeft),
+            2 => Ok(Top),
+            3 => Ok(TopRight),
+            4 => Ok(Right),
+            5 => Ok(BotRight),
+            6 => Ok(Bot),
+            7 => Ok(BotLeft),
+            dir => Err(GridError::invalid_direction(dir).into()),
+        }
+    }
+}
+
+impl Dir {
+    pub fn iter() -> impl Iterator<Item = Self> {
+        (0..8u8).into_iter().map(|v| Self::try_from(v).unwrap())
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct GridMeta {
     width: usize,
@@ -24,7 +97,7 @@ pub struct GridMeta {
     ///Offset from a focal cell's index to its neighbours in terms of flat indexing
     ///
     /// ```
-    /// # use oxscape::GridMeta;
+    /// # use oxscape_core::GridMeta;
     /// # let x = 4;
     /// # let meta = GridMeta::new(3,3);
     /// let arr = [
@@ -83,10 +156,18 @@ impl GridMeta {
         self.size
     }
 
+    pub fn check<T>(&self, arr: &[T]) -> Result<(), GridError> {
+        if self.size() != arr.len() {
+            Err(GridError::size_mismatch(arr.len(), self.size()).into())
+        } else {
+            Ok(())
+        }
+    }
+
     ///Offset from a focal cell's index to its neighbours in terms of flat indexing
     ///
     /// ```
-    /// # use oxscape::GridMeta;
+    /// # use oxscape_core::GridMeta;
     /// # let x = 4;
     /// # let meta = GridMeta::new(3,3);
     /// let arr = [
@@ -108,7 +189,7 @@ impl GridMeta {
     /// This function will x-wrap on edge cells
     ///
     /// ```
-    /// # use oxscape::GridMeta;
+    /// # use oxscape_core::GridMeta;
     /// # let x = 4;
     /// # let meta = GridMeta::new(3,3);
     /// let arr = [
@@ -151,7 +232,7 @@ impl GridMeta {
 
     /// Reverse the direction of nshift:
     /// ```
-    /// # use oxscape::GridMeta;
+    /// # use oxscape_core::GridMeta;
     /// # let x=4;
     /// # let meta = GridMeta::new(3,3);
     /// let arr = [
@@ -188,7 +269,8 @@ impl GridMeta {
 
     /// Get an iterator returning the edge:
     /// ```
-    /// # use oxscape::GridMeta;
+    /// # use oxscape_core::GridMeta;
+    /// # use oxscape_core::Dir::*;
     /// let arr = [
     ///    0, 1, 2, 3,
     ///    4, 5, 6, 7,
@@ -200,36 +282,35 @@ impl GridMeta {
     /// //  0       4
     /// //  0       4
     /// // 067 6 6 456
-    /// assert_eq!(meta.edge(&arr, 0).map(|v|*v).collect::<Vec<_>>(), &[0,4,8,12]);
-    /// assert_eq!(meta.edge(&arr, 1).map(|v|*v).collect::<Vec<_>>(), &[0]);
-    /// assert_eq!(meta.edge(&arr, 2).map(|v|*v).collect::<Vec<_>>(), &[0,1,2,3]);
-    /// assert_eq!(meta.edge(&arr, 3).map(|v|*v).collect::<Vec<_>>(), &[3]);
-    /// assert_eq!(meta.edge(&arr, 4).map(|v|*v).collect::<Vec<_>>(), &[3,7,11,15]);
-    /// assert_eq!(meta.edge(&arr, 5).map(|v|*v).collect::<Vec<_>>(), &[15]);
-    /// assert_eq!(meta.edge(&arr, 6).map(|v|*v).collect::<Vec<_>>(), &[12,13,14,15]);
-    /// assert_eq!(meta.edge(&arr, 7).map(|v|*v).collect::<Vec<_>>(), &[12]);
+    /// assert_eq!(meta.edge(&arr, Left).map(|v|*v).collect::<Vec<_>>(), &[0,4,8,12]);
+    /// assert_eq!(meta.edge(&arr, TopLeft).map(|v|*v).collect::<Vec<_>>(), &[0]);
+    /// assert_eq!(meta.edge(&arr, Top).map(|v|*v).collect::<Vec<_>>(), &[0,1,2,3]);
+    /// assert_eq!(meta.edge(&arr, TopRight).map(|v|*v).collect::<Vec<_>>(), &[3]);
+    /// assert_eq!(meta.edge(&arr, Right).map(|v|*v).collect::<Vec<_>>(), &[3,7,11,15]);
+    /// assert_eq!(meta.edge(&arr, BotRight).map(|v|*v).collect::<Vec<_>>(), &[15]);
+    /// assert_eq!(meta.edge(&arr, Bot).map(|v|*v).collect::<Vec<_>>(), &[12,13,14,15]);
+    /// assert_eq!(meta.edge(&arr, BotLeft).map(|v|*v).collect::<Vec<_>>(), &[12]);
     /// ```
     #[rustfmt::skip]
-    pub fn edge<'a, T>(&'a self, data: &'a [T], dir: u8) -> EdgeIterator<'a, T> {
+    pub fn edge<'a, T>(&'a self, data: &'a [T], dir: Dir) -> EdgeIterator<'a, T> {
         let width = self.width();
         let end = self.size();
         // 
         match dir {
             //                                   0..13=15-2
-            0 => EdgeIterator::new(&data[0..end - width + 2], width),
-            1 => EdgeIterator::new(&data[0..1], 1),
+            Left => EdgeIterator::new(&data[0..end - width + 2], width),
+            TopLeft => EdgeIterator::new(&data[0..1], 1),
             //                                   0..4
-            2 => EdgeIterator::new(&data[0..width], 1),
+            Top => EdgeIterator::new(&data[0..width], 1),
             //                                    3..4
-            3 => EdgeIterator::new(&data[width - 1..width], 1),
+            TopRight => EdgeIterator::new(&data[width - 1..width], 1),
             //                                     3..16
-            4 => EdgeIterator::new(&data[width - 1..end], width),
-            5 => EdgeIterator::new(&data[end - 1..end], 1),
+            Right => EdgeIterator::new(&data[width - 1..end], width),
+            BotRight => EdgeIterator::new(&data[end - 1..end], 1),
             //                                    12=15-3..16
-            6 => EdgeIterator::new(&data[end - width..end], 1),
+            Bot => EdgeIterator::new(&data[end - width..end], 1),
             //                                      12=15-3..12=15-3
-            7 => EdgeIterator::new(&data[(end - width)..=(end - width)], 1),
-            _ => unreachable!(),
+            BotLeft => EdgeIterator::new(&data[(end - width)..=(end - width)], 1),
         }
     }
 
@@ -238,7 +319,7 @@ impl GridMeta {
     /// This can always be used as let edge = edges[`skirt_range(dir)`]
     /// in
     /// ```
-    /// # use oxscape::GridMeta;
+    /// # use oxscape_core::{GridMeta,Dir};
     /// let arr = [
     ///    0, 1, 2, 3,
     ///    4, 5, 6, 7,
@@ -260,7 +341,7 @@ impl GridMeta {
     ///     12,
     /// ];
     /// let meta = GridMeta::new(4,4);
-    /// for dir in 0..8 {
+    /// for dir in Dir::iter() {
     ///     println!("{dir}");
     ///     for (edge_cell, skirt_cell) in meta.edge(&arr,dir).zip(&edges[meta.skirt_range(dir)]) {
     ///         println!("{edge_cell:?}?={skirt_cell:?}");
@@ -279,8 +360,8 @@ impl GridMeta {
     /// ```
     ///
     #[must_use]
-    pub fn skirt_range(&self, dir: u8) -> Range<usize> {
-        self.skirt_idx(dir)..self.skirt_idx(dir + 1)
+    pub fn skirt_range(&self, dir: Dir) -> Range<usize> {
+        self.skirt_idx(dir as u8)..self.skirt_idx(dir as u8 + 1)
     }
 
     /// Gives the size of the outer perimeter or skirt
@@ -288,7 +369,7 @@ impl GridMeta {
     /// If all edges and corners are collected into a single vec, this gives the size
     ///
     /// ```
-    /// use oxscape::GridMeta;
+    /// use oxscape_core::GridMeta;
     /// let meta = GridMeta::new(3,4);
     /// //  perimeter + 4 corners
     /// assert_eq!(meta.skirt_size(),2*3+2*4+4);
@@ -316,7 +397,7 @@ impl GridMeta {
     /// Extract the edges of this tile into a new vec
     ///
     /// ```
-    /// # use oxscape::GridMeta;
+    /// # use oxscape_core::{GridMeta,Dir};
     /// let arr = [
     ///    0, 1, 2, 3,
     ///    4, 5, 6, 7,
@@ -335,7 +416,7 @@ impl GridMeta {
     ///     12,13,14,15,
     ///     12,
     /// ]);
-    /// for dir in 0..8 {
+    /// for dir in Dir::iter() {
     ///     for (edge_cell, skirt_cell) in meta.edge(&arr,dir).zip(&edges[meta.skirt_range(dir)]) {
     ///         assert_eq!(edge_cell, skirt_cell);
     ///     }
@@ -343,7 +424,7 @@ impl GridMeta {
     /// ```
     pub fn edges<T: Clone>(&self, data: &[T]) -> Vec<T> {
         let mut skirt = Vec::with_capacity(self.skirt_idx(8));
-        for dir in 0..8 {
+        for dir in Dir::iter() {
             for cell in self.edge(data, dir) {
                 skirt.push(cell.clone());
             }
@@ -486,14 +567,14 @@ mod test {
             12,13,14,15
         ];
         let meta = GridMeta::new(4, 4);
-        assert_eq!(meta.edge(&arr, 0).map(|v|*v).collect::<Vec<_>>(), &[0,4,8,12]);
-        assert_eq!(meta.edge(&arr, 1).map(|v|*v).collect::<Vec<_>>(), &[0]);
-        assert_eq!(meta.edge(&arr, 2).map(|v|*v).collect::<Vec<_>>(), &[0,1,2,3]);
-        assert_eq!(meta.edge(&arr, 3).map(|v|*v).collect::<Vec<_>>(), &[3]);
-        assert_eq!(meta.edge(&arr, 4).map(|v|*v).collect::<Vec<_>>(), &[3,7,11,15]);
-        assert_eq!(meta.edge(&arr, 5).map(|v|*v).collect::<Vec<_>>(), &[15]);
-        assert_eq!(meta.edge(&arr, 6).map(|v|*v).collect::<Vec<_>>(), &[12,13,14,15]);
-        assert_eq!(meta.edge(&arr, 7).map(|v|*v).collect::<Vec<_>>(), &[12]);
+        assert_eq!(meta.edge(&arr, Left).map(|v|*v).collect::<Vec<_>>(), &[0,4,8,12]);
+        assert_eq!(meta.edge(&arr, TopLeft).map(|v|*v).collect::<Vec<_>>(), &[0]);
+        assert_eq!(meta.edge(&arr, Top).map(|v|*v).collect::<Vec<_>>(), &[0,1,2,3]);
+        assert_eq!(meta.edge(&arr, TopRight).map(|v|*v).collect::<Vec<_>>(), &[3]);
+        assert_eq!(meta.edge(&arr, Right).map(|v|*v).collect::<Vec<_>>(), &[3,7,11,15]);
+        assert_eq!(meta.edge(&arr, BotRight).map(|v|*v).collect::<Vec<_>>(), &[15]);
+        assert_eq!(meta.edge(&arr, Bot).map(|v|*v).collect::<Vec<_>>(), &[12,13,14,15]);
+        assert_eq!(meta.edge(&arr, BotLeft).map(|v|*v).collect::<Vec<_>>(), &[12]);
     }
 
     #[test]
@@ -507,7 +588,7 @@ mod test {
         ];
         let meta = GridMeta::new(4, 4);
         let mut edges = Vec::with_capacity(meta.skirt_size());
-        for dir in 0..8 {
+        for dir in Dir::iter() {
             for edge_cell in meta.edge(&arr, dir) {
                 edges.push(*edge_cell);
             }
@@ -522,13 +603,13 @@ mod test {
             12,13,14,15,
             12
         ]);
-        assert_eq!(&edges[meta.skirt_range(0)], &[0,4,8,12]);
-        assert_eq!(&edges[meta.skirt_range(1)], &[0]);
-        assert_eq!(&edges[meta.skirt_range(2)], &[0,1,2,3]);
-        assert_eq!(&edges[meta.skirt_range(3)], &[3]);
-        assert_eq!(&edges[meta.skirt_range(4)], &[3,7,11,15]);
-        assert_eq!(&edges[meta.skirt_range(5)], &[15]);
-        assert_eq!(&edges[meta.skirt_range(6)], &[12,13,14,15]);
-        assert_eq!(&edges[meta.skirt_range(7)], &[12]);
+        assert_eq!(&edges[meta.skirt_range(Left)], &[0,4,8,12]);
+        assert_eq!(&edges[meta.skirt_range(TopLeft)], &[0]);
+        assert_eq!(&edges[meta.skirt_range(Top)], &[0,1,2,3]);
+        assert_eq!(&edges[meta.skirt_range(TopRight)], &[3]);
+        assert_eq!(&edges[meta.skirt_range(Right)], &[3,7,11,15]);
+        assert_eq!(&edges[meta.skirt_range(BotRight)], &[15]);
+        assert_eq!(&edges[meta.skirt_range(Bot)], &[12,13,14,15]);
+        assert_eq!(&edges[meta.skirt_range(BotLeft)], &[12]);
     }
 }

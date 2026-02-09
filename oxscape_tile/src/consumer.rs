@@ -26,7 +26,7 @@ use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
 use bytemuck::{AnyBitPattern, NoUninit, cast_slice, cast_slice_mut};
 use num_traits::float::{FloatCore, TotalOrder};
-use oxscape_core::GridMeta;
+use oxscape_core::{Dir, GridMeta};
 
 use crate::{
     fill_deps::{
@@ -95,7 +95,7 @@ where
                         Vec::with_capacity(2 * info.meta().width() + 2 * info.meta().height() + 4);
                     let mut dem_edges = Vec::with_capacity(label_edges.capacity());
 
-                    for dir in 0..8 {
+                    for dir in Dir::iter() {
                         for l in info.meta().edge(&labels, dir) {
                             label_edges.push(*l);
                         }

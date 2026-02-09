@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use num_traits::float::FloatCore;
-use oxscape_core::GridMeta;
+use oxscape_core::{Dir, GridMeta};
 
 use crate::fill_deps::grid::FillGrid;
 use crate::{TLabel, tile::TileCoord};
@@ -79,13 +79,13 @@ impl<T: Copy + FloatCore + Debug> SuperGraph<T> {
             // let tile = &fd.tile_info;
             // now check all tiles and connect their nodes
             // for indexing into edges
-            for dir in 0..8 {
+            for dir in Dir::iter() {
                 // get the edge
                 let (my_labels, my_elevs) = fill_grid.edge(my_coord, dir);
                 // if we have a neighbour, connect edges
                 if let Some(n_coord) = fill_grid.neighbour(my_coord, dir) {
                     let (n_labels, n_elevs) =
-                        fill_grid.edge(&n_coord, GridMeta::rev(dir as usize) as u8);
+                        fill_grid.edge(&n_coord, GridMeta::rev(dir as usize).try_into().unwrap());
                     for edge_idx in 0..my_labels.len() {
                         for n_offset in -1..=1 {
                             let Ok(n_edge_idx) = usize::try_from(edge_idx as isize + n_offset)

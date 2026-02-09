@@ -1,10 +1,14 @@
-use crate::mflow::{compute_donors_mflow, generate_order_mflow};
-use crate::{Bazooka, NOT_A_DONOR};
+use std::error::Error;
+use std::fmt::Debug;
 
-use anyhow::anyhow;
+use exn::ResultExt;
 use num_traits::Zero;
-use oxscape_core::{GridMeta, NO_FLOW_GEN, Result};
 use rayon::prelude::*;
+
+use oxscape_core::{GridMeta, NO_FLOW_GEN, Result};
+
+use crate::mflow::{compute_donors_mflow, generate_order_mflow};
+use crate::{Bazooka, ContourError, NOT_A_DONOR};
 
 pub struct LevelAccessor<'a, T: Send + Sync> {
     arr: &'a Bazooka<T>,
@@ -122,7 +126,8 @@ pub struct Order {
 /// flowgraph could be unsound. It is your responsibility that nrec contains the
 /// number of receivers and flows only point downstream (no cycles).
 ///
-pub unsafe trait FlowMetric {
+pub unsafe trait FlowMetric: Debug {
+    type Error: Error + Send + Sync + 'static;
     #[allow(clippy::missing_errors_doc)] // user-provided implementation
     fn metric(
         &mut self,
@@ -130,7 +135,7 @@ pub unsafe trait FlowMetric {
         dem: &[f64],
         flows: &mut [[f64; 8]],
         nrec: &mut [u8],
-    ) -> Result<()>;
+    ) -> Result<(), Self::Error>;
 }
 
 impl Order {
@@ -159,8 +164,14 @@ impl Order {
     ///
     /// - if the supplied dem doesn't match the grid
     /// - if the supplied metric gives an error
-    pub fn reorder<M: FlowMetric>(&mut self, dem: &[f64], metric: &mut M) -> Result<()> {
-        metric.metric(&self.meta, dem, &mut self.flows, &mut self.nrec)?;
+    pub fn reorder<M: FlowMetric>(
+        &mut self,
+        dem: &[f64],
+        metric: &mut M,
+    ) -> Result<(), ContourError> {
+        metric
+            .metric(&self.meta, dem, &mut self.flows, &mut self.nrec)
+            .or_raise(|| ContourError::metric_failed(&metric))?;
         compute_donors_mflow(&self.meta, &self.flows, &mut self.donors);
         generate_order_mflow(
             &self.meta,
@@ -182,10 +193,9 @@ impl Order {
         meta: GridMeta,
         dem: &[f64],
         metric: &mut M,
-    ) -> Result<Self> {
-        if meta.size() != dem.len() {
-            return Err(anyhow!("meta dem mismatch"));
-        }
+    ) -> Result<Self, ContourError> {
+        meta.check(dem)
+            .or_raise(|| ContourError::invalid_array(dem.len()))?;
         let mut res = Self::empty(meta);
         res.reorder(dem, metric)?;
         Ok(res)

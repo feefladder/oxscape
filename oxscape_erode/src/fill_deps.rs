@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use ordered_float::OrderedFloat;
+use oxscape_core::error::GridError;
 use oxscape_core::{GridMeta, Result};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, VecDeque};
@@ -126,10 +127,8 @@ fn process_trace_queue(
     }
 }
 
-pub fn priority_flood_wei2018(dem: &mut [f64], meta: &GridMeta) -> Result<()> {
-    if meta.size() != dem.len() {
-        return Err(anyhow!("meta dem mismatch"));
-    }
+pub fn priority_flood_wei2018(dem: &mut [f64], meta: &GridMeta) -> Result<(), GridError> {
+    meta.check(dem)?;
 
     let mut flag = vec![false; meta.size()];
     let mut pq = BinaryHeap::<CellZ>::new();
