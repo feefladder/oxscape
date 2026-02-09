@@ -3,9 +3,7 @@ use std::{collections::HashMap, f64};
 use colorous::Gradient;
 use oxscape::GridMeta;
 use oxscape_tile::TLabel;
-use oxscape_tile::fill_deps::fill::{
-    FillData, ROI_FLAG, ZhouFillState, watersheds_meet,
-};
+use oxscape_tile::fill_deps::fill::{FillData, ROI_FLAG, ZhouFillState, watersheds_meet};
 use oxscape_tile::fill_deps::graph::SpillGraph;
 use oxscape_tile::tile::TileCoord;
 use ratatui::prelude::*;

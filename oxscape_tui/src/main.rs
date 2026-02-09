@@ -228,6 +228,7 @@ fn main() -> Result<()> {
                             tiled_sim,
                             flow_accumulation: _,
                         } => {
+                            while tiled_sim.step()? {}
                             tiled_sim.complete_step();
                         }
                     },

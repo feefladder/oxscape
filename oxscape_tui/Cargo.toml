@@ -11,6 +11,7 @@ description = "Rust port of fastscape implicit stream-power law landscape evolut
 color-eyre = "0.6.5"
 colorous = "1.0.16"
 crossterm = "0.29.0"
+itertools = "0.14.0"
 ordered-float = "5.1.0"
 oxscape = {version = "0.1", path = "../oxscape"}
 oxscape_erode = {version = "0.1", path = "../oxscape_erode", default-features=false}

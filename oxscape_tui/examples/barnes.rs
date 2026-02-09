@@ -1,14 +1,17 @@
 use std::time::Duration;
 
 use color_eyre::Result;
+use itertools::Itertools;
 use oxscape::GridMeta;
 use oxscape_tile::fill_deps::fill::NOT_FILLED;
 use oxscape_tile::fill_deps::graph::SuperGraph;
 use oxscape_tile::fill_deps::grid::VecFillGrid;
+use oxscape_tile::tile::TileCoord;
 use oxscape_tui::tile::Tile;
 use oxscape_tui::tile_grid::{TiledSim, TiledSimStep};
 use ratatui::crossterm::event::{self, Event, KeyCode};
 use ratatui::layout::{Constraint, Layout};
+use ratatui::symbols::line;
 use ratatui::text::{Line, Text};
 
 /// The tiled dem from Barnes' paper
@@ -52,7 +55,7 @@ const TILED: [[u32; 49]; 9] = [
 ];
 fn main() -> Result<()> {
     let mut terminal = ratatui::init();
-    let gradients = [colorous::RED_BLUE]; //, colorous::BROWN_GREEN];
+    let gradients = [colorous::MAGMA]; //, colorous::BROWN_GREEN];
     let mut play: bool = false;
     let mut tiles = Vec::with_capacity(9);
     let meta = GridMeta::new(7, 7);
@@ -61,14 +64,14 @@ fn main() -> Result<()> {
         tiles.push(Tile::new(
             TILED[idx].map(|v| v as f64).into_iter().collect(),
             vec![NOT_FILLED; 49],
-            meta.i_to_xy(idx).into(),
+            supermeta.i_to_xy(idx).into(),
             meta.clone(),
             0.0,
             8.0,
             gradients[idx % gradients.len()],
         ));
     }
-    let mut grid = TiledSim::new(supermeta, tiles).with_spacing(1);
+    let mut grid = TiledSim::new(supermeta, tiles).with_spacing(0);
     grid.start_all();
     let mut debug_text = Text::from("hello world");
 
@@ -83,15 +86,8 @@ fn main() -> Result<()> {
                     KeyCode::Right => {
                         if !grid.step()? {
                             match grid.current_step() {
-                                TiledSimStep::InitialFill => {
-                                    let fill_grid = VecFillGrid::new(
-                                        grid.meta().clone(),
-                                        grid.tiles.iter_mut().map(Tile::complete_fill).collect(),
-                                    );
-                                    let supergraph = SuperGraph::from_grid(&fill_grid);
-                                    println!("{:#?}", supergraph.spill_graph());
-                                }
-                                _ => todo!(),
+                                TiledSimStep::RaiseCatchment(_) => {}
+                                _ => grid.complete_step(),
                             }
                         };
                     }
@@ -102,20 +98,64 @@ fn main() -> Result<()> {
             }
         }
         terminal.draw(|f| {
-            let layout = Layout::horizontal(&[
-                Constraint::Fill(1),
-                Constraint::Length(7 * 3 * 2 + 2 * 2),
-                Constraint::Fill(2),
-            ])
-            .split(f.area());
-            f.render_widget(&grid, layout[1]);
-            debug_text = Text::from(
-                grid.tiles()
+            let layout =
+                Layout::horizontal(&[Constraint::Length(7 * 3 * 2 + 2 * 2), Constraint::Fill(2)])
+                    .split(f.area());
+            f.render_widget(&grid, layout[0]);
+
+            debug_text = Text::from(match grid.current_step() {
+                TiledSimStep::InitialFill => grid
+                    .tiles()
                     .iter()
                     .map(|t| Line::from(format!("{:?}", t.spill_graph())))
                     .collect::<Vec<_>>(),
-            );
-            f.render_widget(debug_text.clone(), layout[2]);
+                TiledSimStep::FillGraph {
+                    supergraph,
+                    fill_state,
+                    graph_elevs,
+                    node_locations: _,
+                } => {
+                    let mut lines = vec![Line::from("DEFAULT"); supergraph.offsets().len() + 1];
+
+                    for (tc, (start, len)) in supergraph.offsets() {
+                        if tc == &TileCoord::from((0, 0)) {
+                            lines[0] = Line::from(format!(
+                                "{:?}",
+                                &supergraph.spill_graph()[0..*start as usize]
+                            ))
+                        }
+                        lines[grid.meta().xy_to_i(tc.x, tc.y) + 1] = Line::from(format!(
+                            "{:?}",
+                            &supergraph.spill_graph()[*start as usize..*start as usize + len]
+                        ));
+                    }
+                    lines.push(Line::from(format!("{graph_elevs:?}")));
+                    lines.push(Line::from(format!(
+                        "{:?}",
+                        fill_state
+                            .priority_queue()
+                            .iter()
+                            .sorted_by(|a, b| { b.cmp(a) })
+                    )));
+                    lines
+                }
+                TiledSimStep::RaiseCatchment(graph_elevs) => {
+                    let mut lines = vec![Line::from("DEFAULT"); graph_elevs.len() + 1];
+                    for (tc, raise_elev) in graph_elevs {
+                        lines.push(Line::from(format!(
+                            "{:?}:{tc:?}",
+                            grid.meta().xy_to_i(tc.xy().x, tc.xy().y)
+                        )));
+                        lines[grid.meta().xy_to_i(tc.xy().x, tc.xy().y)] =
+                            Line::from(format!("{raise_elev:?}"))
+                    }
+                    lines
+                }
+                TiledSimStep::Done => {
+                    vec![]
+                }
+            });
+            f.render_widget(debug_text.clone(), layout[1]);
         })?;
         if play {
             if !grid.step()? {

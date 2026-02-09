@@ -135,7 +135,7 @@ impl TiledSim {
                 while fill_state.step(&supergraph.spill_graph(), &mut ge) {}
 
                 let mut hm = HashMap::with_capacity(supergraph.offsets().len());
-                for (tc, (start, count)) in supergraph.offsets().iter().skip(1) {
+                for (tc, (start, count)) in supergraph.offsets().iter() {
                     let s = usize::try_from(*start).unwrap();
                     let ti = TileInfo::new(
                         *tc,
@@ -264,8 +264,8 @@ impl Widget for &TiledSim {
         } = &self.current_step
         {
             let rect = Rect {
-                x: 0,
-                y: 0,
+                x: area.left(),
+                y: area.top(),
                 width: (self.meta.width() * self.tile_size * 2) as u16,
                 height: (self.meta.height() * self.tile_size) as u16,
             };
