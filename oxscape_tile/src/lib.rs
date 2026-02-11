@@ -1,4 +1,4 @@
-use num_traits::float::FloatCore;
+use num_traits::float::Float;
 use oxscape_core::GridMeta;
 
 pub mod consumer;
@@ -7,8 +7,11 @@ pub mod producer;
 pub mod tile;
 pub type TLabel = u32;
 
+#[warn(missing_docs)]
+
 /// Gets a new label
-fn get_new_label<T: FloatCore>(
+#[allow(unused)]
+fn get_new_label<T: Float>(
     meta: &GridMeta,
     x: usize,
     y: usize,

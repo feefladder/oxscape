@@ -1,7 +1,7 @@
 use std::collections::{BinaryHeap, HashMap};
 use std::fmt::Debug;
 
-use num_traits::float::{FloatCore, TotalOrder};
+use num_traits::float::{Float, TotalOrder};
 
 use crate::TLabel;
 use crate::fill_deps::GraphCell;
@@ -14,7 +14,7 @@ pub struct GraphFillState<T> {
     priority_queue: BinaryHeap<GraphCell<T>>,
 }
 
-impl<T: FloatCore + TotalOrder> GraphFillState<T> {
+impl<T: Float + TotalOrder> GraphFillState<T> {
     pub fn new(size: usize) -> Self {
         Self {
             processed: vec![false; size],
@@ -68,7 +68,7 @@ impl<T: FloatCore + TotalOrder> GraphFillState<T> {
     }
 }
 
-pub fn fill_supergraph<T: TotalOrder + Default + FloatCore + Debug>(
+pub fn fill_supergraph<T: TotalOrder + Default + Float + Debug>(
     graph_grid: impl FillGrid<T>,
 ) -> RaiseGrid<T> {
     let supergraph = SuperGraph::from_grid(&graph_grid).connect_edges(&graph_grid);
@@ -93,7 +93,7 @@ pub fn fill_supergraph<T: TotalOrder + Default + FloatCore + Debug>(
 }
 
 /// Depression-fill the graph
-pub fn fill_graph<T: TotalOrder + Default + FloatCore>(
+pub fn fill_graph<T: TotalOrder + Default + Float>(
     spill_graph: &[HashMap<TLabel, T>],
     graph_elevs: &mut [T],
 ) {

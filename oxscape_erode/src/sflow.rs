@@ -1,20 +1,34 @@
+use std::ops::AddAssign;
+
 use crate::{ErodeError, Params, add_uplift};
 use exn::ResultExt;
+use num_traits::Float;
 use oxscape_contour::sflow::Order;
 use oxscape_contour::sflow::metrics::D8;
-use oxscape_core::Result;
 use oxscape_core::{DR, GridMeta};
+use oxscape_core::{Flow, Result};
 
-pub fn accum(order: &Order, params: &Params, accum: &mut [f64]) {
+pub fn accum<T: Float + Send + Sync + AddAssign>(
+    order: &Order,
+    params: &Params<T>,
+    accum: &mut [T],
+) {
     accum.fill(params.cell_area);
     order.for_lvls_top_down(accum, |a| {
-        *a.cell() += a.donors().iter().sum::<f64>();
+        for donor in a.donors() {
+            *a.cell() += donor;
+        }
     });
 }
 
-pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {
+pub fn erode<T: Float + Send + Sync>(
+    order: &Order,
+    params: &Params<T>,
+    accum: &[T],
+    dem: &mut [T],
+) {
     order.for_lvls_bottom_up(dem, |a| {
-        let length = DR[a.recv_dir() as usize];
+        let length = T::from(DR[a.recv_dir() as usize]).unwrap();
         let fact =
             params.keq * params.dt * accum[a.idx()].powf(params.meq) / length.powf(params.neq);
 
@@ -22,11 +36,11 @@ pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {
         let hn = a.receiver();
         let mut hnew = h0;
         let mut hp = h0;
-        let mut diff = 2.0 * params.tol;
+        let mut diff = T::from(2.0).unwrap() * params.tol;
         while diff.abs() > params.tol {
             hnew = hnew
                 - (hnew - h0 + fact * (hnew - hn).powf(params.neq))
-                    / (1.0 + fact * params.neq * (hnew - hn).powf(params.neq - 1.0));
+                    / (T::one() + fact * params.neq * (hnew - hn).powf(params.neq - T::one()));
             diff = hnew - hp;
             hp = hnew;
         }
@@ -34,14 +48,14 @@ pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {
     });
 }
 
-pub fn run(
+pub fn run<T: Flow + Send + Sync + Float + AddAssign>(
     nstep: usize,
     meta: &GridMeta,
-    params: &Params,
-    dem: &mut [f64],
+    params: &Params<T>,
+    dem: &mut [T],
 ) -> Result<(), ErodeError> {
     let mut order = Order::empty(meta.clone());
-    let mut acc = vec![0.0; order.meta().size()];
+    let mut acc = vec![T::zero(); order.meta().size()];
     for step in 0..nstep {
         order
             .reorder(dem, &mut D8)

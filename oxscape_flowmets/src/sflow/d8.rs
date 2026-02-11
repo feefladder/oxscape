@@ -8,7 +8,7 @@ use rayon::prelude::*;
 ///flow. Here, we model the receiving cell as being the one connected to the
 ///focal cell by the steepest gradient. If there is no local gradient, then
 ///the special value `NO_FLOW` is assigned.
-pub fn compute_receivers<T: Float + From<f64> + Sync>(
+pub fn compute_receivers<T: Float + Sync>(
     meta: &GridMeta,
     h: &[T],
     rec: &mut [u8],
@@ -29,7 +29,7 @@ pub fn compute_receivers<T: Float + From<f64> + Sync>(
                 let mut max_n = NO_FLOW;
 
                 for n in 0..8 {
-                    let slope = (h[c] - h[meta.shift(c, n)]) / DR[usize::from(n)].into();
+                    let slope = (h[c] - h[meta.shift(c, n)]) / T::from(DR[usize::from(n)]).unwrap();
                     if slope > max_slope {
                         max_slope = slope;
                         max_n = n;

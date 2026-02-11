@@ -10,12 +10,12 @@ use proptest::{array::uniform16, prelude::*};
 #[derive(Debug)]
 struct DBroken(Vec<u8>);
 
-impl FlowMetric for DBroken {
+impl<TElev> FlowMetric<TElev> for DBroken {
     type Error = GridError;
-    fn metric<T: num_traits::Float + From<f64> + Sync>(
+    fn metric(
         &self,
         meta: &oxscape_core::GridMeta,
-        _dem: &[T],
+        _dem: &[TElev],
         receivers: &mut [u8],
     ) -> oxscape_core::Result<(), Self::Error> {
         meta.check(&self.0)?;
@@ -26,11 +26,11 @@ impl FlowMetric for DBroken {
 
 proptest! {
 #[test]
-fn test_invariant(arr in uniform16(0..9u8)) {
+fn test_order_invariant_sflow(arr in uniform16(0..9u8)) {
     let meta = GridMeta::new(4, 4);
     let mut metric = DBroken(arr.to_vec());
     let mut set = HashSet::new();
-    let order = Order::from_dem_metric(meta.clone(), &arr.map(|v| v as f64), &mut metric).prop_assume_ok()?;
+    let Ok(order) = Order::from_dem_metric(meta.clone(), &arr.map(|v| v as f64), &mut metric) else {return Ok(());};
     for level in order
         .levels()
         .windows(2)
@@ -42,16 +42,16 @@ fn test_invariant(arr in uniform16(0..9u8)) {
         }
         // allowed_indices point OUTSIDE the level
         for idx in level {
-            if order.receivers()[*idx] == NO_FLOW {
-                continue;
-            }
-            prop_assert!(!set.contains(&meta.shift(*idx, order.receivers()[*idx])));
             for n in 0..8 {
                 let don_idx = order.donors()[*idx][n];
                 if don_idx != NOT_A_DONOR {
                     assert!(!set.contains(&don_idx))
                 }
             }
+            if order.receivers()[*idx] == NO_FLOW {
+                continue;
+            }
+            prop_assert!(!set.contains(&meta.shift(*idx, order.receivers()[*idx])));
         }
     }
 }

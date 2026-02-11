@@ -1,4 +1,5 @@
 use exn::Exn;
+use num_traits::float::Float;
 use std::f64::consts::SQRT_2;
 use std::fmt::{Debug, Display};
 use std::ops::Range;
@@ -20,7 +21,35 @@ pub const YSHIFT: [isize; 8] = [0, -1, -1, -1, 0, 1, 1, 1];
 pub const DR: [f64; 8] = [1.0, SQRT_2, 1.0, SQRT_2, 1.0, SQRT_2, 1.0, SQRT_2];
 
 pub const NO_FLOW: u8 = 8;
-pub const NO_FLOW_GEN: f64 = 0.0;
+
+pub trait Flow: Float + Send + Sync {
+    #[inline]
+    fn no_flow() -> Self {
+        Self::zero()
+    }
+}
+
+impl<TFlow: Float + Send + Sync> Flow for TFlow {}
+
+/// Provides the `next_up()` function on floats
+///
+/// Float trait doesn't provide the next_up() function needed for epsilon depression filling, so
+/// there's this trait..
+pub trait NextUp {
+    fn next_up(&self) -> Self;
+}
+
+impl NextUp for f32 {
+    fn next_up(&self) -> Self {
+        f32::next_up(*self)
+    }
+}
+
+impl NextUp for f64 {
+    fn next_up(&self) -> Self {
+        f64::next_up(*self)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Dir {

@@ -1,25 +1,33 @@
+use std::{fmt::Debug, marker::PhantomData};
+
 use crate::mflow::FlowMetric;
 
-use oxscape_core::{GridMeta, Result, error::GridError};
+use num_traits::Float;
+use oxscape_core::{Flow, GridMeta, Result, error::GridError};
 
 use oxscape_flowmets::mflow::dinf::fm_dinf;
 
 #[derive(Debug)]
-pub struct Dinf;
+pub struct Dinf<TFlow: Flow + Debug>(PhantomData<TFlow>);
 
 // SAFETY: fm_dinf makes flow only point downstream (no cycles) and skips the edges of the grid (no x-wrapping or y-out-of-bounds-ness)
-unsafe impl FlowMetric for Dinf {
+unsafe impl<TFLow: Flow + Debug, TElev: Float + Sync> FlowMetric<TElev> for Dinf<TFLow> {
     type Error = GridError;
+    type TFlow = TFLow;
     fn metric(
         &mut self,
         meta: &GridMeta,
-        dem: &[f64],
-        flows: &mut [[f64; 8]],
+        dem: &[TElev],
+        flows: &mut [[Self::TFlow; 8]],
         nrec: &mut [u8],
     ) -> Result<(), Self::Error> {
         fm_dinf(meta, dem, flows, nrec);
         Ok(())
     }
+}
+
+pub fn dinf<TFlow: Flow + Debug>() -> Dinf<TFlow> {
+    Dinf(PhantomData)
 }
 
 #[cfg(test)]
@@ -39,7 +47,7 @@ mod test {
         let mut nrec = vec![0;meta.size()];
         fm_dinf(&meta, &h, &mut flows, &mut nrec);
         let mut donor = vec![[0;8];meta.size()];
-        compute_donors_mflow(&meta, &flows, &mut donor);
+        compute_donors_mflow(&meta, &flows, &mut donor).unwrap();
         const N: usize = NOT_A_DONOR;
         assert_eq!(donor, &[
         //   0 1 2 3 4 5 6 7
@@ -70,7 +78,7 @@ mod test {
         let mut nrec = vec![0;meta.size()];
         fm_dinf(&meta, &h, &mut flows, &mut nrec);
         let mut donor = vec![[0;8];meta.size()];
-        compute_donors_mflow(&meta, &flows, &mut donor);
+        compute_donors_mflow(&meta, &flows, &mut donor).unwrap();
         const N: usize = NOT_A_DONOR;
         assert_eq!(donor, &[
         //   0 1 2 3 4 5 6 7
@@ -103,7 +111,7 @@ mod test {
             vec![9,10],
         ]);
         let mut acc = vec![1.0;meta.size()];
-        let order = Order::from_dem_metric(meta, &consts::H_4, &mut Dinf).unwrap();
+        let order = Order::from_dem_metric(meta, &consts::H_4, &mut Dinf(PhantomData)).unwrap();
         order.for_lvls_top_down(&mut acc, |c| {
             *c.cell() += c.donors().iter().map(|(a,b)| a*b).sum::<f64>()
         });

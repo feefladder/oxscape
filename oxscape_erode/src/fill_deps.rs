@@ -1,39 +1,38 @@
-use anyhow::anyhow;
-use ordered_float::OrderedFloat;
+use num_traits::float::TotalOrder;
 use oxscape_core::error::GridError;
-use oxscape_core::{GridMeta, Result};
+use oxscape_core::{GridMeta, NextUp, Result};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, VecDeque};
 
 #[derive(Debug, Clone, Copy)]
-struct CellZ {
+struct CellZ<TElev: TotalOrder> {
     i: usize,
-    z: OrderedFloat<f64>,
+    z: TElev,
 }
 
-impl PartialEq for CellZ {
+impl<T: TotalOrder> PartialEq for CellZ<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.z == other.z
+        matches!(self.z.total_cmp(&other.z), Ordering::Equal)
     }
 }
-impl Eq for CellZ {}
+impl<T: TotalOrder> Eq for CellZ<T> {}
 
-impl PartialOrd for CellZ {
+impl<T: TotalOrder> PartialOrd for CellZ<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
-impl Ord for CellZ {
+impl<T: TotalOrder> Ord for CellZ<T> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.z.cmp(&self.z)
+        other.z.total_cmp(&self.z)
     }
 }
 
-fn init_priority_queue(
-    dem: &[f64],
+fn init_priority_queue<TElev: TotalOrder + Clone>(
+    dem: &[TElev],
     flag: &mut [bool],
     meta: &GridMeta,
-    pq: &mut BinaryHeap<CellZ>,
+    pq: &mut BinaryHeap<CellZ<TElev>>,
 ) {
     for i in 0..meta.size() {
         if flag[i] {
@@ -42,19 +41,19 @@ fn init_priority_queue(
         if meta.is_edge(i) {
             pq.push(CellZ {
                 i,
-                z: dem[i].into(),
+                z: dem[i].clone(),
             });
             flag[i] = true;
         }
     }
 }
 
-fn process_pit(
-    dem: &mut [f64],
+fn process_pit<TElev: TotalOrder + PartialOrd + NextUp>(
+    dem: &mut [TElev],
     flag: &mut [bool],
     meta: &GridMeta,
-    depression_q: &mut VecDeque<CellZ>,
-    trace_q: &mut VecDeque<CellZ>,
+    depression_q: &mut VecDeque<CellZ<TElev>>,
+    trace_q: &mut VecDeque<CellZ<TElev>>,
 ) {
     while let Some(node) = depression_q.pop_front() {
         for d in 0..8 {
@@ -63,8 +62,8 @@ fn process_pit(
                 continue;
             }
 
-            let spill = dem[ni];
-            if spill > *node.z {
+            let spill = &dem[ni];
+            if *spill > node.z {
                 flag[ni] = true;
                 trace_q.push_back(CellZ {
                     i: ni,
@@ -82,12 +81,12 @@ fn process_pit(
     }
 }
 
-fn process_trace_queue(
-    dem: &[f64],
+fn process_trace_queue<TElev: TotalOrder + PartialOrd + Clone>(
+    dem: &[TElev],
     flag: &mut [bool],
     meta: &GridMeta,
-    trace_q: &mut VecDeque<CellZ>,
-    pq: &mut BinaryHeap<CellZ>,
+    trace_q: &mut VecDeque<CellZ<TElev>>,
+    pq: &mut BinaryHeap<CellZ<TElev>>,
 ) {
     let mut potential_q = VecDeque::new();
     let index_threshold = 2;
@@ -99,11 +98,11 @@ fn process_trace_queue(
                 continue;
             }
 
-            if dem[ni] > *node.z {
+            if dem[ni] > node.z {
                 flag[ni] = true;
                 trace_q.push_back(CellZ {
                     i: ni,
-                    z: dem[ni].into(),
+                    z: dem[ni].clone(),
                 });
             } else {
                 if d < index_threshold {
@@ -127,11 +126,14 @@ fn process_trace_queue(
     }
 }
 
-pub fn priority_flood_wei2018(dem: &mut [f64], meta: &GridMeta) -> Result<(), GridError> {
+pub fn priority_flood_wei2018<TElev: NextUp + TotalOrder + Clone + PartialOrd>(
+    dem: &mut [TElev],
+    meta: &GridMeta,
+) -> Result<(), GridError> {
     meta.check(dem)?;
 
     let mut flag = vec![false; meta.size()];
-    let mut pq = BinaryHeap::<CellZ>::new();
+    let mut pq = BinaryHeap::<CellZ<TElev>>::new();
     let mut trace_q = VecDeque::new();
     let mut depression_q = VecDeque::new();
 
@@ -148,8 +150,8 @@ pub fn priority_flood_wei2018(dem: &mut [f64], meta: &GridMeta) -> Result<(), Gr
                 continue;
             }
 
-            let spill = dem[ni];
-            if spill <= *node.z {
+            let spill = &dem[ni];
+            if *spill <= node.z {
                 dem[ni] = node.z.next_up();
                 flag[ni] = true;
                 depression_q.push_back(CellZ {
@@ -161,7 +163,7 @@ pub fn priority_flood_wei2018(dem: &mut [f64], meta: &GridMeta) -> Result<(), Gr
                 flag[ni] = true;
                 trace_q.push_back(CellZ {
                     i: ni,
-                    z: spill.into(),
+                    z: spill.clone(),
                 });
             }
 

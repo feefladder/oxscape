@@ -1,10 +1,13 @@
-use crate::Params;
-use oxscape_contour::mflow::Order;
-use oxscape_core::{DR, NO_FLOW_GEN};
+use std::ops::{AddAssign, SubAssign};
 
-pub fn accum(order: &Order, params: &Params, accum: &mut [f64]) {
+use crate::Params;
+use num_traits::Float;
+use oxscape_contour::mflow::Order;
+use oxscape_core::{DR, Flow};
+
+pub fn accum<TFlow: Flow + AddAssign>(order: &Order<TFlow>, cell_area: TFlow, accum: &mut [TFlow]) {
     // initialize to cell area
-    accum.fill(params.cell_area);
+    accum.fill(cell_area);
 
     order.for_lvls_top_down(accum, |v| {
         let mut sum = *v.cell();
@@ -15,10 +18,15 @@ pub fn accum(order: &Order, params: &Params, accum: &mut [f64]) {
     });
 }
 
-pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {
+pub fn erode<T: Flow + Float + AddAssign + SubAssign + Send + Sync>(
+    order: &Order<T>,
+    params: &Params<T>,
+    accum: &[T],
+    dem: &mut [T],
+) {
     order.for_lvls_bottom_up(dem, |a| {
         let acc = accum[a.idx()];
-        if acc == 0.0 {
+        if acc.is_zero() {
             return;
         }
 
@@ -30,30 +38,31 @@ pub fn erode(order: &Order, params: &Params, accum: &[f64], dem: &mut [f64]) {
         let recs = a.receivers(); // [(w, h_i); 8]
 
         let mut hp = hnew;
-        let mut diff = 2.0 * params.tol;
+        let mut diff = T::from(2.0).unwrap() * params.tol;
 
-        while diff.abs() > params.tol {
+        // TODO: explain what is happening here
+        while Float::abs(diff) > params.tol {
             let mut f = hnew - h0;
-            let mut df = 1.0;
+            let mut df = T::one();
 
             for (n, (w, hn)) in recs.iter().enumerate() {
-                if *w == NO_FLOW_GEN {
+                if *w == T::no_flow() {
                     continue;
                 }
 
                 let dh = hnew - *hn;
-                if dh <= 0.0 {
+                if dh <= T::zero() {
                     continue;
                 }
 
-                let len = DR[n];
-                let term = fact_base * w / len;
+                let len = T::from(DR[n]).unwrap();
+                let term = fact_base * (*w) / len;
 
                 f += term * dh.powf(params.neq);
-                df += term * params.neq * dh.powf(params.neq - 1.0);
+                df += term * params.neq * dh.powf(params.neq - T::one());
             }
 
-            hnew -= f / (1.0 + df);
+            hnew -= f / (T::one() + df);
             diff = hnew - hp;
             hp = hnew;
         }

@@ -3,22 +3,23 @@ use std::fmt::Debug;
 
 use exn::ResultExt;
 use num_traits::Zero;
+use num_traits::float::Float;
 use rayon::prelude::*;
 
-use oxscape_core::{GridMeta, NO_FLOW_GEN, Result};
+use oxscape_core::{Flow, GridMeta, Result};
 
 use crate::mflow::{compute_donors_mflow, generate_order_mflow};
 use crate::{Bazooka, ContourError, NOT_A_DONOR};
 
-pub struct LevelAccessor<'a, T: Send + Sync> {
-    arr: &'a Bazooka<T>,
+pub struct LevelAccessor<'a, TArr: Send + Sync, TFlow: Flow> {
+    arr: &'a Bazooka<TArr>,
     idx: usize,
     meta: &'a GridMeta,
-    flows: &'a [[f64; 8]],
+    flows: &'a [[TFlow; 8]],
     donors: &'a [[usize; 8]],
 }
 
-impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
+impl<'a, TArr: Send + Sync + Zero + Copy, TFlow: Flow> LevelAccessor<'a, TArr, TFlow> {
     /// SAFETY: It is your responsibility to ensure:
     ///
     /// For the lifetime of Self:
@@ -27,12 +28,12 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
     ///   - donors are defined as neighbouring cells that have flow pointing to this cell
     ///     - `&arr[donors[dir]]` when `donors[dir]!=NOT_A_DONOR` is sound
     ///   - receivers are neighbouring cells that this cell flows into
-    ///     - `&arr[meta.shift(idx, dir)]` when `flows[dir]!=NO_FLOW_GEN`is sound
+    ///     - `&arr[meta.shift(idx, dir)]` when `flows[dir]!=TFlow::no_flow()`is sound
     unsafe fn new(
-        arr: &'a Bazooka<T>,
+        arr: &'a Bazooka<TArr>,
         idx: usize,
         meta: &'a GridMeta,
-        flows: &'a [[f64; 8]],
+        flows: &'a [[TFlow; 8]],
         donors: &'a [[usize; 8]],
     ) -> Self {
         Self {
@@ -45,7 +46,7 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
     }
 
     /// Get mutable access to the current cell
-    pub fn cell(&mut self) -> &mut T {
+    pub fn cell(&mut self) -> &mut TArr {
         // SAFETY:
         // - `stack[n]` points within the array, so this cannot overflow isize
         // - therefore, it also points within the same allocatoin
@@ -58,13 +59,13 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
         self.idx
     }
 
-    pub fn receivers(&self) -> [(f64, T); 8] {
-        let mut res = [(NO_FLOW_GEN, T::zero()); 8];
+    pub fn receivers(&self) -> [(TFlow, TArr); 8] {
+        let mut res = [(TFlow::no_flow(), TArr::zero()); 8];
         self.flows[self.idx]
             .iter()
             .enumerate()
             .for_each(|(dir, flow)| {
-                if *flow == NO_FLOW_GEN {
+                if *flow == TFlow::no_flow() {
                     return;
                 }
                 // SAFETY:
@@ -73,15 +74,15 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
                 #[allow(clippy::cast_possible_truncation)] // n in 0..8 range due to type
                 let addr = unsafe { self.arr.0.add(self.meta.shift(self.idx, dir as u8)) };
                 // SAFETY: topological sorting is based on this flow metric.
-                // Therefore, any direction that is NOT NO_FLOW_GEN is in a
+                // Therefore, any direction that is NOT TFlow::no_flow() is in a
                 // different (lower) level and can be safely accessed.
                 res[dir] = unsafe { (*flow, addr.read()) };
             });
         res
     }
 
-    pub fn donors(&self) -> [(f64, T); 8] {
-        let mut res = [(NO_FLOW_GEN, T::zero()); 8];
+    pub fn donors(&self) -> [(TFlow, TArr); 8] {
+        let mut res = [(TFlow::no_flow(), TArr::zero()); 8];
         self.donors[self.idx]
             .iter()
             .enumerate()
@@ -105,9 +106,9 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Order {
+pub struct Order<T: Float> {
     meta: GridMeta,
-    flows: Vec<[f64; 8]>,
+    flows: Vec<[T; 8]>,
     donors: Vec<[usize; 8]>,
     nrec: Vec<u8>,
     stack: Vec<usize>,
@@ -126,19 +127,20 @@ pub struct Order {
 /// flowgraph could be unsound. It is your responsibility that nrec contains the
 /// number of receivers and flows only point downstream (no cycles).
 ///
-pub unsafe trait FlowMetric: Debug {
+pub unsafe trait FlowMetric<TElev>: Debug {
     type Error: Error + Send + Sync + 'static;
+    type TFlow: Flow;
     #[allow(clippy::missing_errors_doc)] // user-provided implementation
     fn metric(
         &mut self,
         meta: &GridMeta,
-        dem: &[f64],
-        flows: &mut [[f64; 8]],
+        dem: &[TElev],
+        flows: &mut [[Self::TFlow; 8]],
         nrec: &mut [u8],
     ) -> Result<(), Self::Error>;
 }
 
-impl Order {
+impl<TFlow: Flow> Order<TFlow> {
     #[must_use]
     pub fn n_levels(&self) -> usize {
         self.levels.len() - 1
@@ -149,7 +151,7 @@ impl Order {
         // SAFETY: we can create bogus flows, donors and nrec
         // as long as stack and levels are empty
         Self {
-            flows: vec![[0.0; 8]; meta.size()],
+            flows: vec![[TFlow::no_flow(); 8]; meta.size()],
             donors: vec![[0; 8]; meta.size()],
             nrec: vec![0; meta.size()],
             stack: Vec::with_capacity(meta.size()),
@@ -164,9 +166,9 @@ impl Order {
     ///
     /// - if the supplied dem doesn't match the grid
     /// - if the supplied metric gives an error
-    pub fn reorder<M: FlowMetric>(
+    pub fn reorder<M: FlowMetric<TElev, TFlow = TFlow>, TElev>(
         &mut self,
-        dem: &[f64],
+        dem: &[TElev],
         metric: &mut M,
     ) -> Result<(), ContourError> {
         metric
@@ -175,7 +177,7 @@ impl Order {
         compute_donors_mflow(&self.meta, &self.flows, &mut self.donors).or_raise(|| {
             ContourError::permanent(format!(
                 "meta size {} doesn't match internal donors {} or flows {}",
-                self.meta().size(),
+                self.meta.size(),
                 self.donors.len(),
                 self.flows.len()
             ))
@@ -196,9 +198,9 @@ impl Order {
     ///
     /// - if the supplied dem doesn't match the grid
     /// - if the supplied metric gives an error
-    pub fn from_dem_metric<M: FlowMetric>(
+    pub fn from_dem_metric<TElev: Float + Sync, M: FlowMetric<TElev, TFlow = TFlow>>(
         meta: GridMeta,
-        dem: &[f64],
+        dem: &[TElev],
         metric: &mut M,
     ) -> Result<Self, ContourError> {
         meta.check(dem)
@@ -215,9 +217,12 @@ impl Order {
     /// # Panics
     ///
     /// if data doesn't match the grid size
-    pub fn for_lvls_bottom_up<T: Zero + Copy + Send + Sync, F: Fn(&mut LevelAccessor<T>) + Sync>(
+    pub fn for_lvls_bottom_up<
+        TArr: Send + Sync + Zero + Copy,
+        F: Fn(&mut LevelAccessor<TArr, TFlow>) + Sync,
+    >(
         &self,
-        data: &mut [T],
+        data: &mut [TArr],
         f: F,
     ) {
         // SAFETY: if data.len < self.meta.size, the LevelAccessor would access
@@ -249,9 +254,12 @@ impl Order {
     /// # Panics
     ///
     /// if data doesn't match the grid size
-    pub fn for_lvls_top_down<T: Zero + Copy + Send + Sync, F: Fn(&mut LevelAccessor<T>) + Sync>(
+    pub fn for_lvls_top_down<
+        TArr: Send + Sync + Zero + Copy,
+        F: Fn(&mut LevelAccessor<TArr, TFlow>) + Sync,
+    >(
         &self,
-        data: &mut [T],
+        data: &mut [TArr],
         f: F,
     ) {
         let b = Bazooka(data.as_mut_ptr());
@@ -294,7 +302,7 @@ impl Order {
     }
 
     #[must_use]
-    pub fn flows(&self) -> &[[f64; 8]] {
+    pub fn flows(&self) -> &[[TFlow; 8]] {
         &self.flows
     }
 
@@ -307,14 +315,16 @@ impl Order {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::mflow::metrics::Dinf;
+    use crate::mflow::metrics::dinf;
+
+    type TFlow = f64;
 
     #[test]
     fn test_order_single_level() {
         let o = Order {
             meta: GridMeta::new(2, 2),
             // nothing flows anywhere, single level
-            flows: vec![[NO_FLOW_GEN; 8]; 4],
+            flows: vec![[TFlow::no_flow(); 8]; 4],
             donors: vec![[NOT_A_DONOR; 8]; 4],
             nrec: vec![0; 4],
             stack: vec![0, 1, 2, 3],
@@ -338,13 +348,13 @@ mod test {
 
     #[test]
     #[rustfmt::skip]
-    fn test_order_two_levels() {
+    fn test_order_two_levels() {        
         let mut data = [
             0, 1,
             2, 3
         ];
         const N: usize = NOT_A_DONOR;
-        const F: f64 = NO_FLOW_GEN;
+        let nf: f64 = TFlow::no_flow();
         let o = Order {
             meta: GridMeta::new(2, 2),
             // 
@@ -353,10 +363,10 @@ mod test {
             // 7 6 5
             flows: vec![
                 // this would be a cycle and very dangerous, but levels are accordingly
-                // We also rely on NO_FLOW_GEN==0.0
+                // We also rely on TFlow::no_flow()==0.0
                 //0   1   2   3   4   5   6   7
-                [F,F,F,F,1.0,F,F,F],[1.0,F,F,F,F,F,F,F],
-                [F,F,F,F,1.0,F,F,F],[1.0,F,F,F,F,F,F,F],
+                [nf,nf,nf,nf,1.0,nf,nf,nf],[1.0,nf,nf,nf,nf,nf,nf,nf],
+                [nf,nf,nf,nf,1.0,nf,nf,nf],[1.0,nf,nf,nf,nf,nf,nf,nf],
             ],
             donors: vec![
             //   0 1 2 3 4 5 6 7   0 1 2 3 4 5 6 7
@@ -378,7 +388,7 @@ mod test {
             println!("recv: {:?}, don: {:?}", a.receivers(), a.donors());
             assert_eq!(a.receivers(), a.donors());
             for (fact, val) in a.receivers() {
-                if fact != NO_FLOW_GEN {
+                if fact != TFlow::no_flow() {
                     *a.cell() += val
                 }
             }
@@ -388,7 +398,7 @@ mod test {
             println!("recv: {:?}, don: {:?}", a.receivers(), a.donors());
             assert_eq!(a.receivers(), a.donors());
             for (fact, val) in a.receivers() {
-                if fact != NO_FLOW_GEN {
+                if fact != TFlow::no_flow() {
                     *a.cell() += val
                 }
             }
@@ -402,7 +412,7 @@ mod test {
     #[rustfmt::skip]
     fn test_order_3() {
         let meta = GridMeta::new(3, 3);
-        let order = Order::from_dem_metric(meta, &consts::H_3, &mut Dinf).unwrap();
+        let order = Order::from_dem_metric(meta, &consts::H_3, &mut dinf()).unwrap();
         assert_eq!(order.flows, vec![
             [0.0;8],[0.0;8],[0.0;8],
             [0.0;8],[0.0,0.590334470601733,0.40966552939826695,0.0,0.0, 0.0, 0.0, 0.0],[0.0;8],

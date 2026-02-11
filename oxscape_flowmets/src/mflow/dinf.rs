@@ -1,4 +1,5 @@
-use oxscape_core::{GridMeta, NO_FLOW_GEN};
+use num_traits::Float;
+use oxscape_core::{Flow, GridMeta};
 use rayon::prelude::*;
 use std::f64::consts::FRAC_PI_4;
 //Table 1 of Tarboton (1997)
@@ -48,20 +49,25 @@ const DIR_E1: [u8; 8] = [0, 2, 2, 4, 4, 6, 6, 0];
 const DIR_E2: [u8; 8] = [1, 1, 3, 3, 5, 5, 7, 7];
 
 // const AC: [f64; 8] = [2.0, 1.0, 1.0, 0.0, 4.0, 3.0, 3.0, 2.0];
-const AF: [f64; 8] = [-1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0];
+const AF: [f32; 8] = [-1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0];
 
 const fn nwrap(n: usize) -> usize {
     if n == 8 { 0 } else { n }
 }
 
 #[allow(clippy::float_cmp)] // float comparisons are explicitly set
-pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u8]) {
-    flows.fill([NO_FLOW_GEN; 8]);
+pub fn fm_dinf<TElev: Float + Sync, TFlow: Flow>(
+    meta: &GridMeta,
+    h: &[TElev],
+    flows: &mut [[TFlow; 8]],
+    nrec: &mut [u8],
+) {
+    flows.fill([TFlow::no_flow(); 8]);
     nrec.fill(0);
     //TODO: Assumes that the width and height of grid cells are equal and scaled
     //to 1.
-    let d1: f64 = 1.0;
-    let d2: f64 = 1.0;
+    let d1: TElev = TElev::one();
+    let d2: TElev = TElev::one();
     let dang = d2.atan2(d1);
 
     flows
@@ -78,8 +84,8 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
                 let ps = &mut row[x];
 
                 let mut dir_max = 8;
-                let mut smax = 0.0;
-                let mut rmax = 0.0;
+                let mut smax = TElev::zero();
+                let mut rmax = TElev::zero();
 
                 for dir in 0..8 {
                     //Is is assumed that cells with a value of NoData have very negative
@@ -101,7 +107,7 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
                     // |/
                     // 0
                     // TODO: make this use try_shift
-                    let e0: f64 = h[n]; // always the central cell
+                    let e0: TElev = h[n]; // always the central cell
                     let Some(e1_idx) = meta.try_shift(x, y, DIR_E1[dir]) else {
                         continue;
                     };
@@ -109,7 +115,7 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
                     let Some(e2_idx) = meta.try_shift(x, y, DIR_E2[dir]) else {
                         continue;
                     };
-                    let e2: f64 = h[e2_idx];
+                    let e2: TElev = h[e2_idx];
 
                     let s1 = (e0 - e1) / d1;
                     let s2 = (e1 - e2) / d2;
@@ -117,10 +123,11 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
                     let mut r = s2.atan2(s1);
                     let s;
 
-                    if r < 1e-7 {
-                        r = 0.0;
+                    let margin = TElev::from(1e-7).unwrap();
+                    if r < margin {
+                        r = TElev::zero();
                         s = s1;
-                    } else if r > dang - 1e-7 {
+                    } else if r > dang - margin {
                         r = dang;
                         s = (e0 - e2) / (d1 * d1 + d2 * d2).sqrt();
                     } else {
@@ -139,12 +146,12 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
                     continue;
                 }
 
-                if AF[dir_max] == 1.0 && rmax == 0.0 {
+                if AF[dir_max] == 1.0 && rmax == TElev::zero() {
                     rmax = dang;
                 } else if AF[dir_max] == 1.0 && rmax == dang {
-                    rmax = 0.0;
+                    rmax = TElev::zero();
                 } else if AF[dir_max] == 1.0 {
-                    rmax = FRAC_PI_4 - rmax;
+                    rmax = TElev::from(FRAC_PI_4).unwrap() - rmax;
                 }
 
                 //Code used by Tarboton to calculate the angle Rg. This should give the same
@@ -153,15 +160,16 @@ pub fn fm_dinf(meta: &GridMeta, h: &[f64], flows: &mut [[f64; 8]], nrec: &mut [u
                 // if(nmax!=-1)
                 //   rg = (AF[nmax]*rmax+ac[nmax]*M_PI/2);
 
-                if rmax == 0.0 {
-                    ps[dir_max] = 1.0;
+                if rmax == TElev::zero() {
+                    ps[dir_max] = TFlow::one();
                     recs[x] = 1;
                 } else if rmax == dang {
-                    ps[nwrap(dir_max + 1)] = 1.0;
+                    ps[nwrap(dir_max + 1)] = TFlow::one();
                     recs[x] = 1;
                 } else {
-                    ps[dir_max] = rmax / FRAC_PI_4;
-                    ps[nwrap(dir_max + 1)] = 1.0 - rmax / FRAC_PI_4;
+                    ps[dir_max] = TFlow::from(rmax / TElev::from(FRAC_PI_4).unwrap()).unwrap();
+                    ps[nwrap(dir_max + 1)] =
+                        TFlow::from(TElev::one() - rmax / TElev::from(FRAC_PI_4).unwrap()).unwrap();
                     recs[x] = 2;
                 }
             }
@@ -203,7 +211,7 @@ mod test {
     #[rustfmt::skip]
     fn test_dinf_3() {
         let meta = &GridMeta::new(3, 3);
-        let mut flows = vec![[NO_FLOW_GEN; 8]; meta.size()];
+        let mut flows = vec![[<f64 as Flow>::no_flow(); 8]; meta.size()];
         let mut recs = vec![2; meta.size()];
 
         fm_dinf(&meta, &consts::H_3, &mut flows, &mut recs);
@@ -250,7 +258,7 @@ mod test {
     #[rustfmt::skip]
     fn test_depression() {
         const META: &GridMeta = &GridMeta::new(4, 3);
-        let flows = &mut [[NO_FLOW_GEN; 8]; META.size()];
+        let flows = &mut [[<f64 as Flow>::no_flow(); 8]; META.size()];
         let nrec = &mut [2; META.size()];
         // check that in a depression, only the pit cell is affected
         // it also pulls flow towards it
@@ -271,7 +279,7 @@ mod test {
     /// Check all directions single-flow
     fn test_dinf_dirs() {
         const META: &GridMeta = &GridMeta::new(3, 3);
-        let flows = &mut [[NO_FLOW_GEN; 8]; META.size()];
+        let flows = &mut [[<f64 as Flow>::no_flow(); 8]; META.size()];
         let nrec = &mut [2; META.size()];
         fm_dinf(META, &[
             1.0,1.0,1.0,
@@ -331,7 +339,7 @@ mod test {
             0.0, 0.5265574090027738, 0.0,
             0.0, 0.0, 0.0
         ];
-        let mut flows = vec![[NO_FLOW_GEN;8];9];
+        let mut flows = vec![[<f64 as Flow>::no_flow();8];9];
         let mut nrec= [0;9];
         fm_dinf(&GridMeta::new(3, 3), &dem, &mut flows, &mut nrec);
         assert_eq!(flows, [

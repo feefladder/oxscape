@@ -7,12 +7,12 @@ use num_traits::Float;
 #[derive(Debug)]
 pub struct D8;
 
-impl FlowMetric for D8 {
+impl<TElev: Float + Sync> FlowMetric<TElev> for D8 {
     type Error = GridError;
-    fn metric<T: Float + From<f64> + Sync>(
+    fn metric(
         &self,
         meta: &GridMeta,
-        dem: &[T],
+        dem: &[TElev],
         receivers: &mut [u8],
     ) -> Result<(), Self::Error> {
         compute_receivers(meta, dem, receivers)

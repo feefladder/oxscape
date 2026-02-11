@@ -29,12 +29,13 @@ pub enum GridErrorKind {
     // ... categorized by what the caller CAN DO
     InvalidDirection,
     SizeMismatch { found: usize, expected: usize },
+    OutOfBounds,
 }
 
 /// The main error type for this crate. All errors should become this one. See [this blog
 /// post](https://fast.github.io/blog/stop-forwarding-errors-start-designing-them/#putting-it-together) for details and
 /// inspiration
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct GridError {
     kind: GridErrorKind,
     status: ErrorStatus,
@@ -59,6 +60,14 @@ impl GridError {
             message: format!(
                 "Array size {found} does not match GridMeta {expected}, consider slicing your array"
             ),
+        }
+    }
+
+    pub fn out_of_bounds(x: usize, y: usize, dir: u8) -> Self {
+        Self {
+            kind: GridErrorKind::OutOfBounds,
+            status: ErrorStatus::Permanent,
+            message: format!("shift in direction {dir} at ({x},{y}) out-of-bounds"),
         }
     }
 }

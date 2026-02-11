@@ -6,12 +6,12 @@ pub mod metrics;
 use rayon::prelude::*;
 
 use crate::NOT_A_DONOR;
-use oxscape_core::{GridMeta, NO_FLOW_GEN, Result, error::GridError};
+use oxscape_core::{Flow, GridMeta, Result, error::GridError};
 
 #[allow(clippy::cast_possible_truncation)] // cast 0..8 to u8
-pub fn compute_donors_mflow(
+pub fn compute_donors_mflow<TFlow: Flow>(
     meta: &GridMeta,
-    flows: &[[f64; 8]],
+    flows: &[[TFlow; 8]],
     donor: &mut [[usize; 8]],
 ) -> Result<(), GridError> {
     meta.check(flows)?;
@@ -25,7 +25,7 @@ pub fn compute_donors_mflow(
             };
             // SAFETY: this is an invariant on which LevelAccessors access data
             // - `&arr[donors[dir]]` when `donors[dir]!=NOT_A_DONOR` is sound
-            if flows[i_rec][GridMeta::rev(dir)] != NO_FLOW_GEN {
+            if flows[i_rec][GridMeta::rev(dir)] != TFlow::no_flow() {
                 *the_don = i_rec;
             }
         }

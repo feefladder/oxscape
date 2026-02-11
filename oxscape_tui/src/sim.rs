@@ -1,8 +1,8 @@
 use color_eyre::{Report, Result};
 use colorous::Gradient;
 use oxscape_contour::mflow::Order;
-use oxscape_contour::mflow::metrics::Dinf;
-use oxscape_core::{GridMeta, NO_FLOW_GEN};
+use oxscape_contour::mflow::metrics::dinf;
+use oxscape_core::{Flow, GridMeta};
 use oxscape_erode::mflow::{accum, erode};
 use oxscape_erode::{Params, add_uplift};
 use ratatui::prelude::*;
@@ -10,13 +10,15 @@ use rayon::prelude::*;
 
 use crate::{DIRS, random_dem};
 
+type TFlow = f64;
+
 #[derive(Debug, Clone)]
 pub struct DefaultSim {
     gradient: Gradient,
     dem: Vec<f64>,
     accum: Vec<f64>,
-    order: Order,
-    params: Params,
+    order: Order<f64>,
+    params: Params<f64>,
     seed: u64,
 }
 
@@ -32,7 +34,7 @@ impl DefaultSim {
     }
 
     #[must_use]
-    pub fn order(&self) -> &Order {
+    pub fn order(&self) -> &Order<f64> {
         &self.order
     }
 
@@ -44,13 +46,13 @@ impl DefaultSim {
     pub fn from_dem(
         dem: Vec<f64>,
         meta: GridMeta,
-        params: Params,
+        params: Params<f64>,
         gradient: Gradient,
     ) -> Result<Self> {
-        let order = Order::from_dem_metric(meta, &dem, &mut Dinf)
+        let order = Order::from_dem_metric(meta, &dem, &mut dinf::<f64>())
             .map_err(|e| Report::msg(e.to_string()))?;
         let mut acc = vec![0.0; order.meta().size()];
-        accum(&order, &params, &mut acc);
+        accum(&order, params.cell_area, &mut acc);
         Ok(Self {
             gradient,
             dem,
@@ -71,7 +73,7 @@ impl DefaultSim {
         let mut dem = vec![0.0; meta.size()];
         random_dem(&mut dem, &meta, 42).map_err(|e| Report::msg(e.to_string()))?;
         // fill_zhou2016(&meta, &mut dem, &mut vec![NOT_FILLED; meta.size()]);
-        let order = Order::from_dem_metric(meta, &dem, &mut Dinf)
+        let order = Order::from_dem_metric(meta, &dem, &mut dinf::<f64>())
             .map_err(|e| Report::msg(e.to_string()))?;
 
         Ok(Self {
@@ -89,7 +91,7 @@ impl DefaultSim {
         self.dem.resize(meta.size(), 0.0);
         random_dem(&mut self.dem, &meta, self.seed).map_err(|e| Report::msg(e.to_string()))?;
         self.accum.resize(meta.size(), 0.0);
-        self.order = Order::from_dem_metric(meta, &self.dem, &mut Dinf)
+        self.order = Order::from_dem_metric(meta, &self.dem, &mut dinf::<f64>())
             .map_err(|e| Report::msg(e.to_string()))?;
         Ok(())
     }
@@ -104,17 +106,17 @@ impl DefaultSim {
         //     &mut vec![NOT_FILLED; self.order.meta().size()],
         // );
         self.order
-            .reorder(&self.dem, &mut Dinf)
+            .reorder(&self.dem, &mut dinf::<f64>())
             .map_err(|e| Report::msg(e.to_string()))
     }
 
     pub fn step(&mut self) -> Result<bool> {
         add_uplift(self.order.meta(), &self.params, &mut self.dem);
-        accum(&self.order, &self.params, &mut self.accum);
+        accum(&self.order, self.params.cell_area, &mut self.accum);
         erode(&self.order, &self.params, &self.accum, &mut self.dem);
         // fill_zhou2016(self.order.meta(), &mut self.dem);
         self.order
-            .reorder(&self.dem, &mut Dinf)
+            .reorder(&self.dem, &mut dinf())
             .map_err(|e| Report::msg(e.to_string()))?;
         Ok(true)
     }
@@ -153,7 +155,7 @@ impl Widget for &DefaultSim {
                 let n = self.order.meta().xy_to_i(x, y);
                 let mut n_dirs = 0;
                 for (dir, val) in self.order.flows()[n].iter().enumerate() {
-                    if *val != NO_FLOW_GEN {
+                    if *val != TFlow::no_flow() {
                         buf[(tx + n_dirs, ty)].set_char(DIRS[dir]);
                         n_dirs += 1;
                     }

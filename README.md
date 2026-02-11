@@ -17,3 +17,7 @@ Oxscape is a collection of tools for running hydrological models in parallel, in
 - `oxscape_tui` is a tui interface, mainly for debugging the different models
 - `oxscape_wasm` defines wasm interfaces to the models via wasm-pack, that are used in `web/oxscape-exhibit`
 - `oxscape_python` exposes a python api. Note that it is not possible to define your own erosion models here.
+
+## Generics
+
+While `contour` and `flowmets` have separate generics for the elevation and flow, this is not possible in `erode`

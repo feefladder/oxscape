@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use num_traits::float::FloatCore;
+use num_traits::float::Float;
 use oxscape_core::{Dir, GridMeta};
 
 use crate::fill_deps::grid::FillGrid;
@@ -31,7 +31,7 @@ impl<T> SuperGraph<T> {
         &self.offsets
     }
 }
-impl<T: Copy + FloatCore + Debug> SuperGraph<T> {
+impl<T: Copy + Float + Debug> SuperGraph<T> {
     /// create a supergraph from tiles' graphs and edge data
     ///
     /// basically this transformation:

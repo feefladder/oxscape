@@ -5,20 +5,20 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use async_channel::{Receiver, Sender};
-use num_traits::float::{FloatCore, TotalOrder};
-use oxscape_core::GridMeta;
+use num_traits::float::{Float, TotalOrder};
+use oxscape_core::{GridMeta, NextUp};
 
-use crate::fill_deps::fill::{FillData, NextUp};
+use crate::fill_deps::fill::FillData;
 use crate::fill_deps::fill_graph::fill_supergraph;
 use crate::fill_deps::grid::{HashMapFillGrid, TileGrid};
 use crate::tile::TileInfo;
 
-pub struct Producer<T: FloatCore + NextUp> {
+pub struct Producer<T: Float + NextUp> {
     producer: ProducerSpecifics<T>,
     meta: GridMeta,
 }
 
-pub struct ProducerSpecifics<T: FloatCore + NextUp> {
+pub struct ProducerSpecifics<T: Float + NextUp> {
     graph_elevations: Vec<T>,
 }
 
@@ -46,7 +46,7 @@ pub enum ConsumerMessage<T> {
 ///to compute the global properties necessary to the solution. Each Job, suitably
 ///modified, is then redelegated to a Consumer which ultimately finishes the
 ///processing.
-pub async fn producer<T: Debug + TotalOrder + Default + FloatCore>(
+pub async fn producer<T: Debug + TotalOrder + Default + Float>(
     tiles: TileGrid,
     sender: Sender<ProducerMessage<T>>,
     receiver: Receiver<ConsumerMessage<T>>,

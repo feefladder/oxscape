@@ -1,9 +1,9 @@
-use std::any::Any;
 use std::{error::Error, fmt::Debug};
 
 use crate::{Bazooka, ContourError, NOT_A_DONOR};
 use exn::{OptionExt, ResultExt};
-use num_traits::{Float, Zero};
+use num_traits::Zero;
+use num_traits::float::Float;
 use oxscape_core::{GridMeta, NO_FLOW, Result, error::GridError};
 use rayon::prelude::*;
 
@@ -30,14 +30,14 @@ pub fn generate_boring_terrain(dem: &mut [f64], start: f64, delta: f64) {
 /// ];
 ///
 /// ```
-pub trait FlowMetric: Debug {
+pub trait FlowMetric<TElev>: Debug {
     type Error: Error + Send + Sync + 'static;
     /// Implement the metric on the dem.
     #[allow(clippy::missing_errors_doc)] // users implement this
-    fn metric<T: Float + From<f64> + Sync>(
+    fn metric(
         &self,
         meta: &GridMeta,
-        dem: &[T],
+        dem: &[TElev],
         receivers: &mut [u8],
     ) -> Result<(), Self::Error>;
 }
@@ -318,9 +318,9 @@ impl Order {
     ///
     /// - if the supplied dem doesn't match the grid
     /// - if the supplied metric gives an error
-    pub fn from_dem_metric<M: FlowMetric>(
+    pub fn from_dem_metric<M: FlowMetric<TElev>, TElev: Float + Sync>(
         meta: GridMeta,
-        dem: &[f64],
+        dem: &[TElev],
         metric: &mut M,
     ) -> Result<Self, ContourError> {
         meta.check(dem)
@@ -336,9 +336,9 @@ impl Order {
     ///
     /// - if the supplied dem doesn't match the grid
     /// - if the supplied metric gives an error
-    pub fn reorder<M: FlowMetric>(
+    pub fn reorder<M: FlowMetric<TElev>, TElev: Float + Sync>(
         &mut self,
-        dem: &[f64],
+        dem: &[TElev],
         metric: &mut M,
     ) -> Result<(), ContourError> {
         self.meta
@@ -503,7 +503,7 @@ mod test {
     #[test]
     fn test_compute_donors() {
         let mut donor = vec![[0; 8]; META.size()];
-        compute_donors_par(&META, &consts::REC, &mut donor);
+        compute_donors_par(&META, &consts::REC, &mut donor).unwrap();
         assert_eq!(donor, consts::DONOR);
     }
 
@@ -590,7 +590,7 @@ mod test {
         let meta = &GridMeta::new(2, 1);
         let rec = [4, 0];
         let mut donors = vec![[0; 8]; 2];
-        compute_donors_par(&meta, &rec, &mut donors);
+        compute_donors_par(&meta, &rec, &mut donors).unwrap();
         const N: usize = NOT_A_DONOR;
         assert_eq!(donors, [[N, N, N, N, 1, N, N, N], [0, N, N, N, N, N, N, N]]);
     }

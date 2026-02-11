@@ -1,8 +1,8 @@
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::fmt::Debug;
 
-use num_traits::float::{FloatCore, TotalOrder};
-use oxscape_core::GridMeta;
+use num_traits::float::{Float, TotalOrder};
+use oxscape_core::{GridMeta, NextUp};
 
 use crate::TLabel;
 use crate::fill_deps::Cell;
@@ -19,26 +19,6 @@ pub const ROI_FLAG: TLabel = 1 << (std::mem::size_of::<TLabel>() * 8 - 1);
 pub const NOT_FILLED: TLabel = ROI_FLAG - 1;
 
 pub type Graph<T> = Vec<HashMap<TLabel, T>>;
-
-/// Provides the `next_up()` function on floats
-///
-/// Float trait doesn't provide the next_up() function needed for epsilon depression filling, so
-/// there's this trait..
-pub trait NextUp {
-    fn next_up(&self) -> Self;
-}
-
-impl NextUp for f32 {
-    fn next_up(&self) -> Self {
-        f32::next_up(*self)
-    }
-}
-
-impl NextUp for f64 {
-    fn next_up(&self) -> Self {
-        f64::next_up(*self)
-    }
-}
 
 /// All data that is needed to solve the global problem
 #[derive(Debug, PartialEq)]
@@ -71,7 +51,7 @@ impl<T> FillData<T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct ZhouFillState<T: FloatCore> {
+pub struct ZhouFillState<T: Float> {
     /// The priority queue that holds boundary cells
     priority_queue: BinaryHeap<Cell<T>>,
     /// The slope queue that holds slope cells
@@ -81,7 +61,7 @@ pub struct ZhouFillState<T: FloatCore> {
     current_label: TLabel,
 }
 
-impl<T: FloatCore + NextUp + TotalOrder> ZhouFillState<T> {
+impl<T: Float + NextUp + TotalOrder> ZhouFillState<T> {
     pub fn new(start_label: TLabel) -> Self {
         Self {
             priority_queue: BinaryHeap::new(),
@@ -279,7 +259,7 @@ impl<T: FloatCore + NextUp + TotalOrder> ZhouFillState<T> {
 }
 
 /// Fill a dem using the Zhou filling algorithm
-pub fn fill_zhou2016<T: FloatCore + NextUp + TotalOrder>(
+pub fn fill_zhou2016<T: Float + NextUp + TotalOrder>(
     meta: &GridMeta,
     dem: &mut [T],
     labels: &mut [TLabel],
@@ -289,7 +269,7 @@ pub fn fill_zhou2016<T: FloatCore + NextUp + TotalOrder>(
     while state.step(meta, dem, labels, |_, _| {}) {}
 }
 
-pub fn fill_zhou_watersheds<T: FloatCore + NextUp + TotalOrder + Debug>(
+pub fn fill_zhou_watersheds<T: Float + NextUp + TotalOrder + Debug>(
     meta: &GridMeta,
     dem: &mut [T],
 ) -> (Vec<TLabel>, SpillGraph<T>) {
@@ -309,7 +289,7 @@ pub fn fill_zhou_watersheds<T: FloatCore + NextUp + TotalOrder + Debug>(
     (labels, spill_graph)
 }
 
-pub fn watersheds_meet<T: FloatCore + Debug>(
+pub fn watersheds_meet<T: Float + Debug>(
     mut my_label: TLabel,
     mut n_label: TLabel,
     my_elev: T,
