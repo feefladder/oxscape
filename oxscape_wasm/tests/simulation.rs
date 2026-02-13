@@ -21,8 +21,10 @@ fn test_create_sim_2() {
     assert_eq!(res, &[0.0; 4]);
     let res: Vec<u32>;
     unsafe {
-        let lvls = sim.levels();
-        res = (0..lvls.length()).map(|i| lvls.get_index(i)).collect();
+        let contours = sim.levels();
+        res = (0..contours.length())
+            .map(|i| contours.get_index(i))
+            .collect();
     }
     assert_eq!(res, &[0, 4]);
     let res: Vec<u32>;
@@ -53,8 +55,10 @@ fn test_create_sim_3() {
     assert_eq!(res, &[0.0; 9]);
     let res: Vec<u32>;
     unsafe {
-        let lvls = sim.levels();
-        res = (0..lvls.length()).map(|i| lvls.get_index(i)).collect();
+        let contours = sim.levels();
+        res = (0..contours.length())
+            .map(|i| contours.get_index(i))
+            .collect();
     }
     assert_eq!(res, &[0, 8, 9]);
     let res: Vec<u32>;
@@ -94,8 +98,10 @@ fn test_step_sim_3() {
     );
     let res: Vec<u32>;
     unsafe {
-        let lvls = sim.levels();
-        res = (0..lvls.length()).map(|i| lvls.get_index(i)).collect();
+        let contours = sim.levels();
+        res = (0..contours.length())
+            .map(|i| contours.get_index(i))
+            .collect();
     }
     assert_eq!(res, &[0, 8, 9]);
     let res: Vec<u32>;

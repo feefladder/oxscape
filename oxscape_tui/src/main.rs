@@ -4,15 +4,15 @@
 //!
 //! Arrows (max 2) indicate flow directions and their colors the levels. All
 //! arrows of the same color are run in parallel.
-//!  
+//!
 use std::time::Duration;
 
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode};
 use oxscape_core::GridMeta;
 use oxscape_erode::Params;
-use oxscape_tile::fill_deps::fill::NOT_FILLED;
-use oxscape_tile::tile::TileCoord;
+use oxscape_tile::TileCoord;
+use oxscape_tile::depfill::NOT_FILLED;
 use oxscape_tui::sim::DefaultSim;
 use oxscape_tui::tile::Tile;
 use oxscape_tui::tile_grid::TiledSim;

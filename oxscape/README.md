@@ -6,15 +6,15 @@ Oxscape (oxidized FastScape) is rust port and abstraction of Barnes' parallel fl
 
 ```rust
 use oxscape::GridMeta;
-use oxscape::order_sflow::{Order, D8};
+use oxscape::order_sflow::{Contours, D8};
 
 let dem: Vec<f64> = (0..1000*1000).iter().map(|v| f64::from(v)).collect()
-let order = Order::from_dem_metric(GridMeta::new(1000,1000), &dem, D8);
+let order = Contours::from_dem_metric(GridMeta::new(1000,1000), &dem, D8);
 
 // write your own algorithms
-pub fn accum(order: &Order, cell_area: f64, accum: &mut [f64]) {
+pub fn accum(order: &Contours, cell_area: f64, accum: &mut [f64]) {
     accum.fill(cell_area);
-    order.for_lvls_top_down(accum, |a| {
+    order.for_contours_top_down(accum, |a| {
         *a.cell() += a.donors().iter().sum::<f64>();
     });
 }
@@ -28,5 +28,3 @@ accum(&order, 10_000.0, &mut flow_accumulation);
 # references
 
 Barnes, R. (2019). Accelerating a fluvial incision and landscape evolution model with parallelism. Geomorphology, 330, 28–39. https://doi.org/10.1016/j.geomorph.2019.01.002
-
-

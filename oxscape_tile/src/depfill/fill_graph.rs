@@ -4,9 +4,9 @@ use std::fmt::Debug;
 use num_traits::float::{Float, TotalOrder};
 
 use crate::TLabel;
-use crate::fill_deps::GraphCell;
-use crate::fill_deps::graph::SuperGraph;
-use crate::fill_deps::grid::{FillGrid, RaiseGrid};
+use crate::depfill::GraphCell;
+use crate::depfill::graph::SuperGraph;
+use crate::depfill::grid::{FillGrid, RaiseGrid};
 
 #[derive(Debug, Clone)]
 pub struct GraphFillState<T> {

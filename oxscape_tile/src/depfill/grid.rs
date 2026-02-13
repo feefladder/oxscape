@@ -4,7 +4,7 @@ use oxscape_core::{Dir, GridMeta, XSHIFT, YSHIFT};
 
 use crate::{
     TLabel,
-    fill_deps::fill::FillData,
+    depfill::fill::FillData,
     tile::{TileCoord, TileInfo},
 };
 

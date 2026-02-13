@@ -1,21 +1,28 @@
-mod order;
-pub use order::{FlowMetric, Order};
+mod contours;
+
+pub use contours::{Contours, FlowMetric};
 #[cfg(feature = "metrics")]
 pub mod metrics;
 
+use exn::OptionExt;
 use rayon::prelude::*;
 
-use crate::NOT_A_DONOR;
-use oxscape_core::{Flow, GridMeta, Result, error::GridError};
+use crate::{ContourError, NOT_A_DONOR};
+use oxscape_core::{Flow, GridMeta, Result};
 
+/// Compute donors array from flows.
+///
+/// Donors are the opposite of receivers. A cell receives flow from its donor. A cell donates flow to its receiver.
+///
+/// Fills the donors array with [`NOT_A_DONOR`] and puts the array index of donating cells in `donors[idx][dir]`
 #[allow(clippy::cast_possible_truncation)] // cast 0..8 to u8
-pub fn compute_donors_mflow<TFlow: Flow>(
+pub fn compute_donors<TFlow: Flow>(
     meta: &GridMeta,
     flows: &[[TFlow; 8]],
     donor: &mut [[usize; 8]],
-) -> Result<(), GridError> {
-    meta.check(flows)?;
-    meta.check(donor)?;
+) {
+    assert!(meta.check(flows).is_ok());
+    assert!(meta.check(donor).is_ok());
     donor.fill([NOT_A_DONOR; 8]);
     donor.par_iter_mut().enumerate().for_each(|(i, don)| {
         let (x, y) = meta.i_to_xy(i);
@@ -23,14 +30,13 @@ pub fn compute_donors_mflow<TFlow: Flow>(
             let Some(i_rec) = meta.try_shift(x, y, dir as u8) else {
                 continue;
             };
-            // SAFETY: this is an invariant on which LevelAccessors access data
+            // SAFETY: this is an invariant on which ContourAccessors access data
             // - `&arr[donors[dir]]` when `donors[dir]!=NOT_A_DONOR` is sound
             if flows[i_rec][GridMeta::rev(dir)] != TFlow::no_flow() {
                 *the_don = i_rec;
             }
         }
     });
-    Ok(())
 }
 
 ///Cells must be ordered so that they can be traversed such that higher cells
@@ -39,13 +45,12 @@ pub fn compute_donors_mflow<TFlow: Flow>(
 ///topologically, neither higher nor lower than each other. Cells in the same
 ///level can all be processed simultaneously without having to worry about
 ///race conditions.
-pub fn generate_order_mflow(
-    meta: &GridMeta,
+pub fn generate_order(
     nrec: &mut [u8],
     donor: &[[usize; 8]],
     stack: &mut Vec<usize>,
     levels: &mut Vec<usize>,
-) {
+) -> Result<(), ContourError> {
     stack.clear();
     levels.clear();
 
@@ -53,10 +58,9 @@ pub fn generate_order_mflow(
     levels.push(0);
 
     // Add cells that don't give flow as the first level
-    #[allow(clippy::needless_range_loop)]
-    for c in 0..meta.size() {
-        if nrec[c] == 0 {
-            stack.push(c);
+    for (idx, n_receivers) in nrec.iter().enumerate() {
+        if *n_receivers == 0 {
+            stack.push(idx);
         }
     }
     let mut level_bottom = 0; // first cell of current level
@@ -75,7 +79,9 @@ pub fn generate_order_mflow(
                     continue;
                 }
                 // counter so we only add on the last visit
-                nrec[n] -= 1;
+                nrec[n] = nrec[n].checked_sub(1).ok_or_raise(|| {
+                    ContourError::invalid_metric("number of receivers exhausted")
+                })?;
                 if nrec[n] == 0 {
                     stack.push(n);
                 }
@@ -86,7 +92,9 @@ pub fn generate_order_mflow(
 
         levels.push(level_top);
     }
+    // we've added the last level twice, so pop it
     levels.pop();
+    Ok(())
 }
 
 #[cfg(test)]
@@ -136,12 +144,12 @@ pub(crate) mod test {
             0,1,2,3,4,
         ];
         let mut s = vec![0;stack.len()];
-        let mut lvls = Vec::with_capacity(5);
-        generate_order_mflow(&GridMeta::new(2, 2), &mut nrec, &donor, &mut s, &mut lvls);
-        assert_eq!(lvls, levels);
+        let mut contours = Vec::with_capacity(5);
+        generate_order(&mut nrec, &donor, &mut s, &mut contours);
+        assert_eq!(contours, levels);
         assert_eq!(s, stack);
-        for l in 0..lvls.len()-1 {
-            assert_eq!(s[lvls[l]..lvls[l+1]], stack[levels[l]..levels[l+1]]);
+        for l in 0..contours.len()-1 {
+            assert_eq!(s[contours[l]..contours[l+1]], stack[levels[l]..levels[l+1]]);
         }
     }
 
@@ -172,13 +180,13 @@ pub(crate) mod test {
             0,1,2,4,5,7,8,9,
         ];
         let mut s = vec![0;stack.len()];
-        let mut lvls = Vec::with_capacity(8);
-        generate_order_mflow(&GridMeta::new(3, 3), &mut nrec, &donor, &mut s, &mut lvls);
-        assert_eq!(lvls, levels);
+        let mut contours = Vec::with_capacity(8);
+        generate_order(&mut nrec, &donor, &mut s, &mut contours);
+        assert_eq!(contours, levels);
         assert_eq!(s, stack);
-        for l in 0..lvls.len()-1 {
-            println!("{:?}",&s[lvls[l]..lvls[l+1]]);
-            assert_eq!(s[lvls[l]..lvls[l+1]], stack[levels[l]..levels[l+1]]);
+        for l in 0..contours.len()-1 {
+            println!("{:?}",&s[contours[l]..contours[l+1]]);
+            assert_eq!(s[contours[l]..contours[l+1]], stack[levels[l]..levels[l+1]]);
         }
     }
 }

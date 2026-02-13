@@ -3,18 +3,18 @@ use std::ops::AddAssign;
 use crate::{ErodeError, Params, add_uplift};
 use exn::ResultExt;
 use num_traits::Float;
-use oxscape_contour::sflow::Order;
+use oxscape_contour::sflow::Contours;
 use oxscape_contour::sflow::metrics::D8;
 use oxscape_core::{DR, GridMeta};
 use oxscape_core::{Flow, Result};
 
 pub fn accum<T: Float + Send + Sync + AddAssign>(
-    order: &Order,
+    order: &Contours,
     params: &Params<T>,
     accum: &mut [T],
 ) {
     accum.fill(params.cell_area);
-    order.for_lvls_top_down(accum, |a| {
+    order.for_contours_top_down(accum, |a| {
         for donor in a.donors() {
             *a.cell() += donor;
         }
@@ -22,12 +22,12 @@ pub fn accum<T: Float + Send + Sync + AddAssign>(
 }
 
 pub fn erode<T: Float + Send + Sync>(
-    order: &Order,
+    order: &Contours,
     params: &Params<T>,
     accum: &[T],
     dem: &mut [T],
 ) {
-    order.for_lvls_bottom_up(dem, |a| {
+    order.for_contours_bottom_up(dem, |a| {
         let length = T::from(DR[a.recv_dir() as usize]).unwrap();
         let fact =
             params.keq * params.dt * accum[a.idx()].powf(params.meq) / length.powf(params.neq);
@@ -54,7 +54,7 @@ pub fn run<T: Flow + Send + Sync + Float + AddAssign>(
     params: &Params<T>,
     dem: &mut [T],
 ) -> Result<(), ErodeError> {
-    let mut order = Order::empty(meta.clone());
+    let mut order = Contours::empty(meta.clone());
     let mut acc = vec![T::zero(); order.meta().size()];
     for step in 0..nstep {
         order
@@ -70,11 +70,11 @@ pub fn run<T: Flow + Send + Sync + Float + AddAssign>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use oxscape_contour::sflow::Order;
+    use oxscape_contour::sflow::Contours;
 
     const META: GridMeta = GridMeta::new(6, 6);
     #[rustfmt::skip]
-    mod consts {  
+    mod consts {
     pub const H_INIT: [f64;36] = [
         //     0    1    2    3    4    5
         /*0*/ 0.5, 1.0, 1.5, 2.0, 2.5, 3.0,
@@ -124,7 +124,7 @@ mod test {
     fn test_compute_acc() {
         let meta = GridMeta::new(8, 8);
         let mut acc = vec![0.0; meta.size()];
-        let order = Order::from_dem_metric(meta, &consts::H_LIFT, &mut D8).unwrap();
+        let order = Contours::from_dem_metric(meta, &consts::H_LIFT, &mut D8).unwrap();
         accum(&order, &Params::default(), &mut acc);
         assert_eq!(acc, consts::ACCUM);
     }
@@ -132,7 +132,8 @@ mod test {
     #[test]
     fn test_erode() {
         let mut h = consts::H_LIFT.to_vec();
-        let order = Order::from_dem_metric(GridMeta::new(8, 8), &consts::H_LIFT, &mut D8).unwrap();
+        let order =
+            Contours::from_dem_metric(GridMeta::new(8, 8), &consts::H_LIFT, &mut D8).unwrap();
         erode(&order, &Params::default(), &consts::ACCUM, &mut h);
         assert_eq!(h, consts::H_ONE);
     }

@@ -1,8 +1,9 @@
+#![allow(missing_docs)]
 use std::collections::HashSet;
 
 use oxscape_contour::{
     NOT_A_DONOR,
-    sflow::{FlowMetric, Order},
+    sflow::{Contours, FlowMetric},
 };
 use oxscape_core::{GridMeta, NO_FLOW, error::GridError};
 use proptest::{array::uniform16, prelude::*};
@@ -14,7 +15,7 @@ impl<TElev> FlowMetric<TElev> for DBroken {
     type Error = GridError;
     fn metric(
         &self,
-        meta: &oxscape_core::GridMeta,
+        meta: &GridMeta,
         _dem: &[TElev],
         receivers: &mut [u8],
     ) -> oxscape_core::Result<(), Self::Error> {
@@ -30,7 +31,7 @@ fn test_order_invariant_sflow(arr in uniform16(0..9u8)) {
     let meta = GridMeta::new(4, 4);
     let mut metric = DBroken(arr.to_vec());
     let mut set = HashSet::new();
-    let Ok(order) = Order::from_dem_metric(meta.clone(), &arr.map(|v| v as f64), &mut metric) else {return Ok(());};
+    let Ok(order) = Contours::from_dem_metric(meta.clone(), &arr.map(|v| v as f64), &mut metric) else {return Ok(());};
     for level in order
         .levels()
         .windows(2)

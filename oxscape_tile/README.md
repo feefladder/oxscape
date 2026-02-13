@@ -41,7 +41,7 @@ So there's a mix of async and CPU, mainly in Job1: Tile loading is async and can
    - may also explode memory
    - cache may be fast
 
-However, ideally we'd be able to support both in some way. However, I'm currently a bit stuck at the point where the basic idea of rayon - and thus the wasm-bindgen-rayon (is it bad to want to use rayon bc I don't care abt howto wasm multi-threading?) is work-stealing and -well- I could be work-stealing, but that's normally done from like a fixed, splittable workload... This model is more like a push-stuff-to-threads kind of thing...
+However, ideally we'd be able to support both in some way. However, I'm currently a bit stuck at the point where the basic idea of rayon - and thus the wasm-bindgen-rayon (is it bad to want to use rayon bc I don't care abt howto wasm multi-threading?) is work-stealing and -well- I could be work-stealing, but that's normally done from like a fixed, splittable workload... This model is more like a push-stuff-to-threads kind of thing...And threads in wasm is a bit of a pain, so ideally, I'd rayon that..
 
 whatever, Let's just first get the producer-consumer thing working in some agnostic-ish way and then see howto rayon
 
@@ -50,4 +50,3 @@ whatever, Let's just first get the producer-consumer thing working in some agnos
 ## References
 
 Barnes, R. (2016). Parallel Priority-Flood Depression Filling For Trillion Cell Digital Elevation Models On Desktops Or Clusters. Computers & Geosciences, 96, 56–68. https://doi.org/10.1016/j.cageo.2016.07.001
-

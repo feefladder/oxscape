@@ -8,10 +8,10 @@ use crate::Dir::*;
 use crate::error::GridError;
 use std::env;
 
+pub use exn::Result;
+
 pub mod array_2d;
 pub mod error;
-
-pub type Result<T, E> = std::result::Result<T, Exn<E>>;
 
 pub const GIT_HASH: &str = env!("GIT_HASH");
 
@@ -90,7 +90,7 @@ impl TryFrom<u8> for Dir {
             5 => Ok(BotRight),
             6 => Ok(Bot),
             7 => Ok(BotLeft),
-            dir => Err(GridError::invalid_direction(dir).into()),
+            dir => Err(GridError::invalid_direction(dir.into()).into()),
         }
     }
 }
@@ -324,7 +324,7 @@ impl GridMeta {
     pub fn edge<'a, T>(&'a self, data: &'a [T], dir: Dir) -> EdgeIterator<'a, T> {
         let width = self.width();
         let end = self.size();
-        // 
+        //
         match dir {
             //                                   0..13=15-2
             Left => EdgeIterator::new(&data[0..end - width + 2], width),

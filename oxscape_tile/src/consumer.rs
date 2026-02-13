@@ -1,25 +1,6 @@
 //! The consumer implementation from Barnes
 //!
 
-// use std::collections::HashMap;
-
-// use crate::TLabel;
-
-// // Mock Job1 structure
-// #[derive(Clone)]
-// struct Job1<T> {
-//     /// The graph of watershed connections and their minimal heights
-//     graph: Vec<HashMap<TLabel, T>>,
-//     top_elev: Vec<T>,
-//     bot_elev: Vec<T>,
-//     left_elev: Vec<T>,
-//     right_elev: Vec<T>,
-//     top_label: Vec<TLabel>,
-//     bot_label: Vec<TLabel>,
-//     left_label: Vec<TLabel>,
-//     right_label: Vec<TLabel>,
-// }
-
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use async_channel::{Receiver, Sender};
@@ -29,10 +10,7 @@ use num_traits::float::{Float, TotalOrder};
 use oxscape_core::{Dir, GridMeta, NextUp};
 
 use crate::{
-    fill_deps::{
-        fill::{FillData, ZhouFillState, watersheds_meet},
-        graph::SpillGraph,
-    },
+    depfill::{FillData, SpillGraph, ZhouFillState, watersheds_meet},
     producer::{ConsumerMessage, ProducerMessage},
     tile::TileCoord,
 };

@@ -8,10 +8,10 @@ use rayon::prelude::*;
 
 use oxscape_core::{Flow, GridMeta, Result};
 
-use crate::mflow::{compute_donors_mflow, generate_order_mflow};
+use crate::mflow::{compute_donors, generate_order};
 use crate::{Bazooka, ContourError, NOT_A_DONOR};
 
-pub struct LevelAccessor<'a, TArr: Send + Sync, TFlow: Flow> {
+pub struct ContourAccessor<'a, TArr: Send + Sync, TFlow: Flow> {
     arr: &'a Bazooka<TArr>,
     idx: usize,
     meta: &'a GridMeta,
@@ -19,7 +19,7 @@ pub struct LevelAccessor<'a, TArr: Send + Sync, TFlow: Flow> {
     donors: &'a [[usize; 8]],
 }
 
-impl<'a, TArr: Send + Sync + Zero + Copy, TFlow: Flow> LevelAccessor<'a, TArr, TFlow> {
+impl<'a, TArr: Send + Sync + Zero + Copy, TFlow: Flow> ContourAccessor<'a, TArr, TFlow> {
     /// SAFETY: It is your responsibility to ensure:
     ///
     /// For the lifetime of Self:
@@ -92,7 +92,7 @@ impl<'a, TArr: Send + Sync + Zero + Copy, TFlow: Flow> LevelAccessor<'a, TArr, T
                 }
                 let flow = self.flows[*donor][GridMeta::rev(n)];
                 // SAFETY:
-                // - [`compute_donors_mflow`] gives a donors array with the array index of the donor in the given direction
+                // - [`compute_donors`] gives a donors array with the array index of the donor in the given direction
                 // - therefore, it will not overflow isize
                 // - and it will still point to the current allocation
                 let addr = unsafe { self.arr.0.add(*donor) };
@@ -106,7 +106,7 @@ impl<'a, TArr: Send + Sync + Zero + Copy, TFlow: Flow> LevelAccessor<'a, TArr, T
 }
 
 #[derive(Debug, Clone)]
-pub struct Order<T: Float> {
+pub struct Contours<T: Float> {
     meta: GridMeta,
     flows: Vec<[T; 8]>,
     donors: Vec<[usize; 8]>,
@@ -121,6 +121,13 @@ pub struct Order<T: Float> {
 /// receivers of a current cell
 ///
 /// # SAFETY
+///
+/// This function is certainly safe for "normal" flow metrics:
+/// - it assigns flows only to lower cells
+/// - The edges do not flow out of the grid
+/// - If a cell `c` assigns flow to `n` neighbours ensure `nrec[c] == n`
+///
+/// TODO: mark this function as safe once the below is figured out:
 ///
 /// Cycles are omitted and out-of-bounds will panic. However, if `nrec`
 /// is not sound _and_ the flow graph contains a cycle, it is uncertain if the
@@ -140,7 +147,7 @@ pub unsafe trait FlowMetric<TElev>: Debug {
     ) -> Result<(), Self::Error>;
 }
 
-impl<TFlow: Flow> Order<TFlow> {
+impl<TFlow: Flow> Contours<TFlow> {
     #[must_use]
     pub fn n_levels(&self) -> usize {
         self.levels.len() - 1
@@ -149,7 +156,7 @@ impl<TFlow: Flow> Order<TFlow> {
     #[must_use]
     pub fn empty(meta: GridMeta) -> Self {
         // SAFETY: we can create bogus flows, donors and nrec
-        // as long as stack and levels are empty
+        // as long as stack and levels are empty: no memory will be accessed
         Self {
             flows: vec![[TFlow::no_flow(); 8]; meta.size()],
             donors: vec![[0; 8]; meta.size()],
@@ -174,22 +181,14 @@ impl<TFlow: Flow> Order<TFlow> {
         metric
             .metric(&self.meta, dem, &mut self.flows, &mut self.nrec)
             .or_raise(|| ContourError::metric_failed(&metric))?;
-        compute_donors_mflow(&self.meta, &self.flows, &mut self.donors).or_raise(|| {
-            ContourError::permanent(format!(
-                "meta size {} doesn't match internal donors {} or flows {}",
-                self.meta.size(),
-                self.donors.len(),
-                self.flows.len()
-            ))
-        })?;
-        generate_order_mflow(
-            &self.meta,
+        compute_donors(&self.meta, &self.flows, &mut self.donors);
+        generate_order(
             &mut self.nrec,
             &self.donors,
             &mut self.stack,
             &mut self.levels,
-        );
-        Ok(())
+        )
+        .or_raise(|| ContourError::invalid_metric("failed to generate order from metric"))
     }
 
     /// Create an order from a supplied dem and a metric
@@ -213,29 +212,29 @@ impl<TFlow: Flow> Order<TFlow> {
     /// iterate over levels bottom-to-top
     ///
     /// In this case, all receivers are already processed
-    ///  
+    ///
     /// # Panics
     ///
     /// if data doesn't match the grid size
-    pub fn for_lvls_bottom_up<
+    pub fn for_contours_bottom_up<
         TArr: Send + Sync + Zero + Copy,
-        F: Fn(&mut LevelAccessor<TArr, TFlow>) + Sync,
+        F: Fn(&mut ContourAccessor<TArr, TFlow>) + Sync,
     >(
         &self,
         data: &mut [TArr],
         f: F,
     ) {
-        // SAFETY: if data.len < self.meta.size, the LevelAccessor would access
+        // SAFETY: if data.len < self.meta.size, the ContourAccessor would access
         // out-of-bounds data.
         assert!(data.len() == self.meta.size());
         let b = Bazooka(data.as_mut_ptr());
         for level in self.levels.windows(2).map(|w| &self.stack[w[0]..w[1]]) {
             level.par_iter().for_each(|v| {
-                // SAFETY: we have a sound topological sorting. The LevelAccessor
+                // SAFETY: we have a sound topological sorting. The ContourAccessor
                 // only accesses donors and receivers, and those are on
                 // different levels
                 unsafe {
-                    f(&mut LevelAccessor::new(
+                    f(&mut ContourAccessor::new(
                         &b,
                         *v,
                         &self.meta,
@@ -250,13 +249,13 @@ impl<TFlow: Flow> Order<TFlow> {
     /// iterate over levels top-to-bottom
     ///
     /// In this case, all donors are already processed
-    ///  
+    ///
     /// # Panics
     ///
     /// if data doesn't match the grid size
-    pub fn for_lvls_top_down<
+    pub fn for_contours_top_down<
         TArr: Send + Sync + Zero + Copy,
-        F: Fn(&mut LevelAccessor<TArr, TFlow>) + Sync,
+        F: Fn(&mut ContourAccessor<TArr, TFlow>) + Sync,
     >(
         &self,
         data: &mut [TArr],
@@ -270,11 +269,11 @@ impl<TFlow: Flow> Order<TFlow> {
             .map(|w| &self.stack[w[0]..w[1]])
         {
             level.into_par_iter().for_each(|v| {
-                // SAFETY: we have a sound topological sorting. The LevelAccessor
+                // SAFETY: we have a sound topological sorting. The ContourAccessor
                 // only accesses donors and receivers, and those are on
                 // different levels
                 unsafe {
-                    f(&mut LevelAccessor::new(
+                    f(&mut ContourAccessor::new(
                         &b,
                         *v,
                         &self.meta,
@@ -321,7 +320,7 @@ mod test {
 
     #[test]
     fn test_order_single_level() {
-        let o = Order {
+        let o = Contours {
             meta: GridMeta::new(2, 2),
             // nothing flows anywhere, single level
             flows: vec![[TFlow::no_flow(); 8]; 4],
@@ -332,13 +331,13 @@ mod test {
         };
         assert_eq!(o.n_levels(), 1);
         let mut data = [0, 1, 2, 3];
-        o.for_lvls_bottom_up(&mut data, |a| {
+        o.for_contours_bottom_up(&mut data, |a| {
             assert_eq!(a.donors(), [(0.0, 0); 8]);
             assert_eq!(a.receivers(), [(0.0, 0); 8]);
             *a.cell() += 1;
         });
         assert_eq!(data, [1, 2, 3, 4]);
-        o.for_lvls_top_down(&mut data, |a| {
+        o.for_contours_top_down(&mut data, |a| {
             assert_eq!(a.donors(), [(0.0, 0); 8]);
             assert_eq!(a.receivers(), [(0.0, 0); 8]);
             *a.cell() += 1;
@@ -348,22 +347,21 @@ mod test {
 
     #[test]
     #[rustfmt::skip]
-    fn test_order_two_levels() {        
+    fn test_order_two_levels() {
         let mut data = [
             0, 1,
             2, 3
         ];
         const N: usize = NOT_A_DONOR;
         let nf: f64 = TFlow::no_flow();
-        let o = Order {
+        let o = Contours {
             meta: GridMeta::new(2, 2),
-            // 
+            //
             // 1 2 3
             // 0 x 4
             // 7 6 5
             flows: vec![
                 // this would be a cycle and very dangerous, but levels are accordingly
-                // We also rely on TFlow::no_flow()==0.0
                 //0   1   2   3   4   5   6   7
                 [nf,nf,nf,nf,1.0,nf,nf,nf],[1.0,nf,nf,nf,nf,nf,nf,nf],
                 [nf,nf,nf,nf,1.0,nf,nf,nf],[1.0,nf,nf,nf,nf,nf,nf,nf],
@@ -384,7 +382,7 @@ mod test {
 
         println!("going up");
         // in this context, this is unsafe, because we have "unsound" order
-        o.for_lvls_bottom_up(&mut data, |a| {
+        o.for_contours_bottom_up(&mut data, |a| {
             println!("recv: {:?}, don: {:?}", a.receivers(), a.donors());
             assert_eq!(a.receivers(), a.donors());
             for (fact, val) in a.receivers() {
@@ -394,7 +392,7 @@ mod test {
             }
         });
         assert_eq!(data, [1, 2, 5, 8]);
-        o.for_lvls_top_down(&mut data, |a| {
+        o.for_contours_top_down(&mut data, |a| {
             println!("recv: {:?}, don: {:?}", a.receivers(), a.donors());
             assert_eq!(a.receivers(), a.donors());
             for (fact, val) in a.receivers() {
@@ -412,7 +410,7 @@ mod test {
     #[rustfmt::skip]
     fn test_order_3() {
         let meta = GridMeta::new(3, 3);
-        let order = Order::from_dem_metric(meta, &consts::H_3, &mut dinf()).unwrap();
+        let order = Contours::from_dem_metric(meta, &consts::H_3, &mut dinf()).unwrap();
         assert_eq!(order.flows, vec![
             [0.0;8],[0.0;8],[0.0;8],
             [0.0;8],[0.0,0.590334470601733,0.40966552939826695,0.0,0.0, 0.0, 0.0, 0.0],[0.0;8],
@@ -423,7 +421,7 @@ mod test {
         ]);
         assert_eq!(&order.levels, &[0,8,9]);
         let mut acc = [1.0;9];
-        order.for_lvls_top_down(&mut acc, |c| {
+        order.for_contours_top_down(&mut acc, |c| {
             *c.cell() += c.donors().iter().map(|(frac, val)| frac*val).sum::<f64>()
         });
         assert_eq!(&acc, &[

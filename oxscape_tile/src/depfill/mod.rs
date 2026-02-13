@@ -4,16 +4,26 @@ use num_traits::float::TotalOrder;
 
 use crate::TLabel;
 
-pub mod fill;
-pub mod fill_graph;
-pub mod graph;
-pub mod grid;
+mod fill;
+pub use fill::{
+    FillData, NOT_FILLED, ROI_FLAG, ZhouFillState, fill_zhou_watersheds, fill_zhou2016,
+    raise_catchments, watersheds_meet,
+};
+mod fill_graph;
+pub use fill_graph::{GraphFillState, fill_graph, fill_supergraph};
+mod graph;
+pub use graph::{SpillGraph, SuperGraph};
+mod grid;
+pub use grid::{FillGrid, HashMapFillGrid, RaiseGrid, TileGrid, VecFillGrid};
 
 /// A struct that implements Ord in reverse order
 #[derive(Debug, Clone)]
 pub struct Cell<T> {
+    /// The cell's x-coordinate
     pub x: usize,
+    /// The cell's y-coordinate
     pub y: usize,
+    /// The height value
     pub z: T,
     /// Whether we are in the Region of Interest
     pub roi: bool,
@@ -29,12 +39,12 @@ impl<T: TotalOrder> Eq for Cell<T> {}
 /// BinaryHeap is a max-heap, so based on z-value, we should insert lowest z first
 /// However, the roi should grow first on equality.
 impl<T: TotalOrder> PartialOrd for Cell<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 impl<T: TotalOrder> Ord for Cell<T> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         // reverse ordering on z-value
         match other.z.total_cmp(&self.z) {
             // but roi takes precedence
@@ -91,8 +101,9 @@ mod test {
 
     use oxscape_core::GridMeta;
 
-    use crate::fill_deps::{
+    use crate::depfill::{
         fill::{FillData, fill_zhou_watersheds},
+        fill_graph::fill_graph,
         graph::SuperGraph,
         grid::VecFillGrid,
     };
@@ -180,7 +191,7 @@ mod test {
         );
 
         let mut graph_elevs = vec![f32::MIN; supergraph.spill_graph().len()];
-        crate::fill_deps::fill_graph::fill_graph(supergraph.spill_graph(), &mut graph_elevs);
+        fill_graph(supergraph.spill_graph(), &mut graph_elevs);
         // the graph is now filled;
         for (tc, (start, len)) in supergraph.offsets() {
             let su = *start as usize;

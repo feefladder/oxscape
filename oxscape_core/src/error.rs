@@ -27,29 +27,27 @@ pub enum ErrorStatus {
 #[derive(Debug, PartialEq, Eq)]
 pub enum GridErrorKind {
     // ... categorized by what the caller CAN DO
-    InvalidDirection,
+    InvalidDirection { dir: usize },
     SizeMismatch { found: usize, expected: usize },
-    OutOfBounds,
+    OutOfBounds { x: usize, y: usize, dir: u8 },
 }
 
-/// The main error type for this crate. All errors should become this one. See [this blog
-/// post](https://fast.github.io/blog/stop-forwarding-errors-start-designing-them/#putting-it-together) for details and
-/// inspiration
+/// Errors related to grid indexing.
+///
+/// See [this blog
+/// post](https://fast.github.io/blog/stop-forwarding-errors-start-designing-them/#putting-it-together)
+/// for details and inspiration
 #[derive(Debug, PartialEq)]
 pub struct GridError {
     kind: GridErrorKind,
     status: ErrorStatus,
-    message: String,
 }
 
 impl GridError {
-    pub fn invalid_direction<T: Debug>(dir: T) -> Self {
+    pub fn invalid_direction(dir: usize) -> Self {
         Self {
-            kind: GridErrorKind::InvalidDirection,
+            kind: GridErrorKind::InvalidDirection { dir },
             status: ErrorStatus::Permanent,
-            message: format!(
-                "Direction {dir:?} is not a valid direction. Directions should be in the range `0..8`"
-            ),
         }
     }
 
@@ -57,24 +55,34 @@ impl GridError {
         Self {
             kind: GridErrorKind::SizeMismatch { found, expected },
             status: ErrorStatus::Permanent,
-            message: format!(
-                "Array size {found} does not match GridMeta {expected}, consider slicing your array"
-            ),
         }
     }
 
     pub fn out_of_bounds(x: usize, y: usize, dir: u8) -> Self {
         Self {
-            kind: GridErrorKind::OutOfBounds,
+            kind: GridErrorKind::OutOfBounds { x, y, dir },
             status: ErrorStatus::Permanent,
-            message: format!("shift in direction {dir} at ({x},{y}) out-of-bounds"),
         }
     }
 }
 
 impl std::fmt::Display for GridError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}: {} ({:?})", self.kind, self.message, self.status)
+        match self.kind {
+            GridErrorKind::OutOfBounds { x, y, dir } => write!(
+                f,
+                "OutOfBounds: shift in direction {dir} at ({x},{y}) out-of-bounds"
+            )?,
+            GridErrorKind::SizeMismatch { found, expected } => write!(
+                f,
+                "SizeMismatch: Array size {found} does not match GridMeta {expected}, consider slicing your array"
+            )?,
+            GridErrorKind::InvalidDirection { dir } => write!(
+                f,
+                "InvalidDirection: Direction {dir:?} is not a valid direction. Directions should be in the range `0..8`"
+            )?,
+        }
+        write!(f, " ({:?})", self.status)
     }
 }
 
@@ -91,11 +99,7 @@ mod test {
             err.to_string(),
             "InvalidDirection: Direction 8 is not a valid direction. Directions should be in the range `0..8` (Permanent)"
         );
-        assert_eq!(
-            err.message,
-            "Direction 8 is not a valid direction. Directions should be in the range `0..8`"
-        );
         assert_eq!(err.status, ErrorStatus::Permanent);
-        assert_eq!(err.kind, GridErrorKind::InvalidDirection);
+        assert_eq!(err.kind, GridErrorKind::InvalidDirection { dir: 8 });
     }
 }

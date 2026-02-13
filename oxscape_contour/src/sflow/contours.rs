@@ -31,6 +31,7 @@ pub fn generate_boring_terrain(dem: &mut [f64], start: f64, delta: f64) {
 ///
 /// ```
 pub trait FlowMetric<TElev>: Debug {
+    /// The error type for your flow metric
     type Error: Error + Send + Sync + 'static;
     /// Implement the metric on the dem.
     #[allow(clippy::missing_errors_doc)] // users implement this
@@ -61,6 +62,8 @@ fn compute_donors(meta: &GridMeta, rec: &[u8], donor: &mut [[usize; 8]]) {
 
 /// parallelly compute donors.
 ///
+/// Errors if the donors point outside the grid
+///
 /// # Safety
 ///
 /// This function SHOULD give:
@@ -73,8 +76,11 @@ fn compute_donors_par(
 ) -> Result<(), GridError> {
     // In the single-flow case, it's more efficient to iterate receivers
     // because we don't have to check all neighbours of a donor
-    meta.check(donors)?;
-    meta.check(rec)?;
+
+    // these arrays are managed by ourselves, this would be a bug
+    assert!(meta.check(donors).is_ok());
+    assert!(meta.check(rec).is_ok());
+
     donors.fill([NOT_A_DONOR; 8]);
     // cast &mut [[usize;8]] to &mut [usize] so we can access cell's directions
     // in parallel without aliasing problems
@@ -156,7 +162,35 @@ pub fn generate_order(
     levels.pop();
 }
 
-pub struct LevelAccessor<'a, T: Send + Sync> {
+/// Struct that allows accessing cells on this "contour" mutably and its
+/// receivers and donors immutably.
+///
+/// You generally do not create this yourself
+/// ```ignore
+/// // a 1-dimensional dem
+/// let meta = GridMeta::new(3,1);
+/// let arr = [0,1,2];
+/// let mut donors = [NOT_A_DONOR;8];
+/// donors[Dir::Right as usize]=2;
+/// let receivers = [Dir::Left as u8];
+/// {
+///   let arr_ptr = Bazooka(arr.as_mut_ptr());
+///   let cell = unsafe {ContourAccessor::new(
+///       &arr_ptr,
+///       1,
+///       &meta,
+///       &donors,
+///       &receivers
+///   )};
+///   assert_eq!(cell.cell(), 1);
+///   //                         0 1 2 3 4 5 6 7
+///   assert_eq!(cell.donors(), [0,0,0,0,2,0,0,0]);
+///   assert_eq!(cell.receiver(), 0);
+///   *cell.cell() = 5;
+/// }
+/// assert_eq!(arr, [0,5,2]);
+/// ```
+pub struct ContourAccessor<'a, T: Send + Sync> {
     arr: &'a Bazooka<T>,
     idx: usize,
     meta: &'a GridMeta,
@@ -164,7 +198,7 @@ pub struct LevelAccessor<'a, T: Send + Sync> {
     receivers: &'a [u8],
 }
 
-impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
+impl<'a, T: Zero + Copy + Send + Sync> ContourAccessor<'a, T> {
     /// SAFETY: It is your responsibility to ensure:
     ///
     /// For the lifetime of Self:
@@ -256,7 +290,7 @@ impl<'a, T: Zero + Copy + Send + Sync> LevelAccessor<'a, T> {
 }
 
 #[derive(Debug)]
-pub struct Order {
+pub struct Contours {
     meta: GridMeta,
     donors: Vec<[usize; 8]>,
     receivers: Vec<u8>,
@@ -264,7 +298,7 @@ pub struct Order {
     levels: Vec<usize>,
 }
 
-impl Order {
+impl Contours {
     #[must_use]
     pub fn levels(&self) -> &[usize] {
         &self.levels
@@ -347,14 +381,8 @@ impl Order {
         metric
             .metric(&self.meta, dem, &mut self.receivers)
             .or_raise(|| ContourError::metric_failed(&metric))?;
-        compute_donors_par(&self.meta, &self.receivers, &mut self.donors).or_raise(|| {
-            ContourError::permanent(format!(
-                "meta size {} doesn't match internal donors {} or receivers {}",
-                self.meta().size(),
-                self.donors.len(),
-                self.receivers.len()
-            ))
-        })?;
+        compute_donors_par(&self.meta, &self.receivers, &mut self.donors)
+            .or_raise(|| ContourError::invalid_metric("could not compute donors"))?;
         generate_order(
             &self.receivers,
             &self.donors,
@@ -367,16 +395,19 @@ impl Order {
     /// iterate over levels bottom-to-top
     ///
     /// In this case, all receivers are already processed
-    ///  
+    ///
     /// # Panics
     ///
     /// if data doesn't match the grid size
-    pub fn for_lvls_bottom_up<T: Zero + Copy + Send + Sync, F: Fn(&mut LevelAccessor<T>) + Sync>(
+    pub fn for_contours_bottom_up<
+        T: Zero + Copy + Send + Sync,
+        F: Fn(&mut ContourAccessor<T>) + Sync,
+    >(
         &self,
         data: &mut [T],
         f: F,
     ) {
-        // SAFETY: if data.len < self.meta.size, the LevelAccessor would access
+        // SAFETY: if data.len < self.meta.size, the ContourAccessor would access
         // out-of-bounds data.
         assert!(data.len() == self.meta.size());
         let b = Bazooka(data.as_mut_ptr());
@@ -385,11 +416,11 @@ impl Order {
                 if self.receivers[*v] == NO_FLOW {
                     return;
                 }
-                // SAFETY: we have a sound topological sorting. The LevelAccessor
+                // SAFETY: we have a sound topological sorting. The ContourAccessor
                 // only accesses donors and receivers, and those are on
                 // different levels
                 unsafe {
-                    f(&mut LevelAccessor::new(
+                    f(&mut ContourAccessor::new(
                         &b,
                         *v,
                         &self.meta,
@@ -404,11 +435,14 @@ impl Order {
     /// iterate over levels top-to-bottom
     ///
     /// In this case, all donors are already processed
-    ///  
+    ///
     /// # Panics
     ///
     /// if data doesn't match the grid size
-    pub fn for_lvls_top_down<T: Zero + Copy + Send + Sync, F: Fn(&mut LevelAccessor<T>) + Sync>(
+    pub fn for_contours_top_down<
+        T: Zero + Copy + Send + Sync,
+        F: Fn(&mut ContourAccessor<T>) + Sync,
+    >(
         &self,
         data: &mut [T],
         f: F,
@@ -421,11 +455,11 @@ impl Order {
             .map(|w| &self.stack[w[0]..w[1]])
         {
             level.into_par_iter().for_each(|v| {
-                // SAFETY: we have a sound topological sorting. The LevelAccessor
+                // SAFETY: we have a sound topological sorting. The ContourAccessor
                 // only accesses donors and receivers, and those are on
                 // different levels
                 unsafe {
-                    f(&mut LevelAccessor::new(
+                    f(&mut ContourAccessor::new(
                         &b,
                         *v,
                         &self.meta,
@@ -445,6 +479,8 @@ mod test {
         collections::HashSet,
         panic::{AssertUnwindSafe, catch_unwind},
     };
+
+    use oxscape_core::Dir;
 
     use super::*;
 
@@ -498,6 +534,26 @@ mod test {
     //  32  33  34  35
         25, 26, 27, 28,
     ];
+    }
+
+    #[test]
+    fn test_contour_accessor() {
+        // a 1-dimensional dem
+        let meta = GridMeta::new(3, 1);
+        let mut arr = [0, 1, 2];
+        let mut donors = [[NOT_A_DONOR; 8]; 3];
+        donors[1][Dir::Right as usize] = 2;
+        let receivers = [NO_FLOW, Dir::Left as u8, Dir::Left as u8];
+        {
+            let arr_ptr = Bazooka(arr.as_mut_ptr());
+            let mut cell = unsafe { ContourAccessor::new(&arr_ptr, 1, &meta, &donors, &receivers) };
+            assert_eq!(*cell.cell(), 1);
+            //                         0 1 2 3 4 5 6 7
+            assert_eq!(cell.donors(), [0, 0, 0, 0, 2, 0, 0, 0]);
+            assert_eq!(cell.receiver(), 0);
+            *cell.cell() = 5;
+        }
+        assert_eq!(arr, [0, 5, 2]);
     }
 
     #[test]
@@ -685,8 +741,8 @@ mod test {
 
     #[test]
     fn test_order_empty_run() {
-        let order = Order::empty(GridMeta::new(2, 2));
-        order.for_lvls_bottom_up(&mut [0.0; 4], |_| panic!("I shouldn't run!"));
-        order.for_lvls_top_down(&mut [0.0; 4], |_| panic!("I shouldn't run!"));
+        let order = Contours::empty(GridMeta::new(2, 2));
+        order.for_contours_bottom_up(&mut [0.0; 4], |_| panic!("I shouldn't run!"));
+        order.for_contours_top_down(&mut [0.0; 4], |_| panic!("I shouldn't run!"));
     }
 }

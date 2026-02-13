@@ -4,6 +4,9 @@ use oxscape_flowmets::sflow::d8::compute_receivers;
 
 use num_traits::Float;
 
+/// D8 flow routing
+///
+/// Passes all flow to the lowest neighbour
 #[derive(Debug)]
 pub struct D8;
 

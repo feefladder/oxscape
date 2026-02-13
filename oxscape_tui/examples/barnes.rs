@@ -1,10 +1,20 @@
+//! Step-through depression filling of the example in Barnes(2016)
+//!
+//! ```bash
+//! cargo run --example barnes
+//! ```
+//!
+//! ## References
+//!
+//! Barnes, R. (2016). Parallel Priority-Flood Depression Filling For Trillion Cell Digital Elevation Models On Desktops Or Clusters. Computers & Geosciences, 96, 56–68. https://doi.org/10.1016/j.cageo.2016.07.001
+//!
 use std::time::Duration;
 
 use color_eyre::Result;
 use itertools::Itertools;
 use oxscape_core::GridMeta;
-use oxscape_tile::fill_deps::fill::NOT_FILLED;
-use oxscape_tile::tile::TileCoord;
+use oxscape_tile::TileCoord;
+use oxscape_tile::depfill::NOT_FILLED;
 use oxscape_tui::tile::Tile;
 use oxscape_tui::tile_grid::{TiledSim, TiledSimStep};
 use ratatui::crossterm::event::{self, Event, KeyCode};

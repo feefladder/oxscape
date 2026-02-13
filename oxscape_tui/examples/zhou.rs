@@ -1,10 +1,18 @@
-//! visualization of the worked example in the Zhou paper.
+//! visualization of the worked example in the Zhou (2016) paper.
 //!
+//! ```bash
+//! cargo run --example zhou
+//! ```
+//!
+//! ## References
+//!
+//! Zhou, G., Sun, Z., & Fu, S. (2016). An efficient variant of the Priority-Flood algorithm for filling depressions in raster digital elevation models. Computers & Geosciences. https://doi.org/10.1016/j.cageo.2016.02.021
+
 use std::time::Duration;
 
 use color_eyre::eyre::Result;
 use oxscape_core::GridMeta;
-use oxscape_tile::fill_deps::fill::NOT_FILLED;
+use oxscape_tile::depfill::NOT_FILLED;
 use oxscape_tui::tile::Tile;
 use ratatui::crossterm::event::{self, Event, KeyCode};
 use ratatui::prelude::*;

@@ -8,10 +8,10 @@ use async_channel::{Receiver, Sender};
 use num_traits::float::{Float, TotalOrder};
 use oxscape_core::{GridMeta, NextUp};
 
-use crate::fill_deps::fill::FillData;
-use crate::fill_deps::fill_graph::fill_supergraph;
-use crate::fill_deps::grid::{HashMapFillGrid, TileGrid};
-use crate::tile::TileInfo;
+use crate::{
+    depfill::{FillData, HashMapFillGrid, TileGrid, fill_supergraph},
+    tile::TileInfo,
+};
 
 pub struct Producer<T: Float + NextUp> {
     producer: ProducerSpecifics<T>,

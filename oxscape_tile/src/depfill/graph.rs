@@ -10,9 +10,18 @@ use std::fmt::Debug;
 use num_traits::float::Float;
 use oxscape_core::{Dir, GridMeta};
 
-use crate::fill_deps::grid::FillGrid;
+use crate::depfill::grid::FillGrid;
 use crate::{TLabel, tile::TileCoord};
 
+/// A spill graph
+///
+/// ```rust
+/// # use std::collections::HashMap;
+/// use oxscape_tile::depfill::SpillGraph;
+/// let mut graph = vec![HashMap::new();2];
+/// // node `0` flows to node `1` at elevation `42.0`
+/// assert!(graph[0].insert(1,42.0f32).is_none());
+/// ```
 pub type SpillGraph<T> = Vec<HashMap<TLabel, T>>;
 
 /// graph of spill elevations that also keeps track of which ranges map to which tiles
@@ -139,7 +148,7 @@ impl<T: Copy + Float + Debug> SuperGraph<T> {
 #[cfg(test)]
 mod test {
     use crate::{
-        fill_deps::{fill::FillData, grid::VecFillGrid},
+        depfill::{fill::FillData, grid::VecFillGrid},
         tile::TileInfo,
     };
 

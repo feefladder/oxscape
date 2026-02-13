@@ -1,12 +1,13 @@
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::fmt::Debug;
+use std::mem::size_of;
 
 use num_traits::float::{Float, TotalOrder};
 use oxscape_core::{GridMeta, NextUp};
 
 use crate::TLabel;
-use crate::fill_deps::Cell;
-use crate::fill_deps::graph::SpillGraph;
+use crate::depfill::Cell;
+use crate::depfill::graph::SpillGraph;
 use crate::tile::{TileCoord, TileInfo};
 
 /// flag bit for the region of interest.
@@ -15,10 +16,9 @@ use crate::tile::{TileCoord, TileInfo};
 ///
 /// As such, most operations on a u32 should work,
 /// unless there are more than 2147483647 different labels
-pub const ROI_FLAG: TLabel = 1 << (std::mem::size_of::<TLabel>() * 8 - 1);
+pub const ROI_FLAG: TLabel = 1 << (size_of::<TLabel>() * 8 - 1);
+/// The label value for a cell that is not processed yet
 pub const NOT_FILLED: TLabel = ROI_FLAG - 1;
-
-pub type Graph<T> = Vec<HashMap<TLabel, T>>;
 
 /// All data that is needed to solve the global problem
 #[derive(Debug, PartialEq)]
@@ -336,7 +336,7 @@ pub fn raise_catchments<T: PartialOrd + Clone>(
 
 #[cfg(test)]
 mod test {
-    use crate::fill_deps::{fill_graph::fill_graph, graph::SuperGraph, grid::VecFillGrid};
+    use crate::depfill::{fill_graph::fill_graph, graph::SuperGraph, grid::VecFillGrid};
 
     use super::*;
     use core::f64;
@@ -755,7 +755,7 @@ mod test {
         let mut spillgraphs = Vec::with_capacity(supermeta.size());
         for (idx, dem) in dems.iter_mut().enumerate() {
             let (labels, graph) =  fill_zhou_watersheds(&meta, dem);
-            
+
             meta.print(&dem.map(|v| v as u32));
             assert_eq!(dem, &filled[idx].map(|v| v as f64));
             meta.print(&labels);
@@ -765,7 +765,7 @@ mod test {
             labels_grid.push(labels);
             spillgraphs.push(graph);
         }
-        
+
         let grid = VecFillGrid::new(supermeta.clone(), dems
             .iter()
             .zip(&labels_grid)
@@ -778,7 +778,7 @@ mod test {
             })
             .collect()
         );
-        
+
         let mut supergraph = SuperGraph::from_grid(&grid);
         assert_eq!(supergraph.offsets(),&HashMap::from([
             ((0,0).into(),(1,3)),

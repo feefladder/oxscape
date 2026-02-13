@@ -1,7 +1,8 @@
+use exn::Exn;
 use num_traits::Float;
 use oxscape_core::NO_FLOW;
 use oxscape_core::error::GridError;
-use oxscape_core::{DR, GridMeta, Result};
+use oxscape_core::{DR, GridMeta};
 use rayon::prelude::*;
 
 ///The receiver of a focal cell is the cell which receives the focal cells'
@@ -12,7 +13,7 @@ pub fn compute_receivers<T: Float + Sync>(
     meta: &GridMeta,
     h: &[T],
     rec: &mut [u8],
-) -> Result<(), GridError> {
+) -> Result<(), Exn<GridError>> {
     meta.check(h)?;
     meta.check(rec)?;
     rec.fill(NO_FLOW);

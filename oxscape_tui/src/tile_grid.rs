@@ -4,11 +4,10 @@ use color_eyre::Result;
 use colorous::Gradient;
 use oxscape_core::GridMeta;
 use oxscape_tile::TLabel;
-use oxscape_tile::fill_deps::fill::{NOT_FILLED, raise_catchments};
-use oxscape_tile::fill_deps::fill_graph::GraphFillState;
-use oxscape_tile::fill_deps::graph::SuperGraph;
-use oxscape_tile::fill_deps::grid::{RaiseGrid, VecFillGrid};
-use oxscape_tile::tile::{TileCoord, TileInfo};
+use oxscape_tile::depfill::{
+    GraphFillState, NOT_FILLED, RaiseGrid, SuperGraph, VecFillGrid, raise_catchments,
+};
+use oxscape_tile::{TileCoord, TileInfo};
 use ratatui::prelude::*;
 use ratatui::widgets::canvas::{Canvas, Circle, Line};
 use rayon::prelude::*;

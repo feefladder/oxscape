@@ -2,14 +2,18 @@ use std::ops::{AddAssign, SubAssign};
 
 use crate::Params;
 use num_traits::Float;
-use oxscape_contour::mflow::Order;
+use oxscape_contour::mflow::Contours;
 use oxscape_core::{DR, Flow};
 
-pub fn accum<TFlow: Flow + AddAssign>(order: &Order<TFlow>, cell_area: TFlow, accum: &mut [TFlow]) {
+pub fn accum<TFlow: Flow + AddAssign>(
+    order: &Contours<TFlow>,
+    cell_area: TFlow,
+    accum: &mut [TFlow],
+) {
     // initialize to cell area
     accum.fill(cell_area);
 
-    order.for_lvls_top_down(accum, |v| {
+    order.for_contours_top_down(accum, |v| {
         let mut sum = *v.cell();
         for (val, factor) in v.donors() {
             sum += val * factor;
@@ -19,12 +23,12 @@ pub fn accum<TFlow: Flow + AddAssign>(order: &Order<TFlow>, cell_area: TFlow, ac
 }
 
 pub fn erode<T: Flow + Float + AddAssign + SubAssign + Send + Sync>(
-    order: &Order<T>,
+    order: &Contours<T>,
     params: &Params<T>,
     accum: &[T],
     dem: &mut [T],
 ) {
-    order.for_lvls_bottom_up(dem, |a| {
+    order.for_contours_bottom_up(dem, |a| {
         let acc = accum[a.idx()];
         if acc.is_zero() {
             return;

@@ -1,10 +1,21 @@
-#![warn(
-    clippy::pedantic,
-    clippy::undocumented_unsafe_blocks,
-    clippy::multiple_unsafe_ops_per_block,
-    clippy::unnecessary_safety_doc,
-    clippy::non_send_fields_in_send_ty
-)]
+//! Rust port of Barnes (2019) that accepts a closure for entering your own functions.
+//!
+//! Adapted for single- and multiflow topologies. The single-flow topology,
+//! which is a special case of multiflow is more efficient and therefore
+//! separately kept.
+//!
+//! ```
+//! use oxscape_contour::mflow::Contours;
+//!
+//!
+//!
+//! ```
+//!
+//!
+//! ## References
+//!
+//! Barnes, R. (2019). Accelerating a fluvial incision and landscape evolution model with parallelism. Geomorphology, 330, 28–39. https://doi.org/10.1016/j.geomorph.2019.01.002
+//!
 use oxscape_core::error::ErrorStatus;
 use std::{
     error::Error,
@@ -37,7 +48,8 @@ pub struct ContourError {
 #[non_exhaustive]
 pub enum ContourErrorKind {
     MetricFailed,
-    InvalidArray,
+    InvalidMetric,
+    InvalidArraySize,
     Other,
 }
 
@@ -50,19 +62,24 @@ impl ContourError {
         }
     }
 
-    fn invalid_array(array_size: usize) -> Self {
+    /// The metric succeeded, but gave invalid results, so we cannot continue safely
+    ///
+    /// This can generally happen for two reasons:
+    /// 1. The metric pointed flow outside the grid (sflow)
+    /// 2. There were more receivers than noted in the nrec array (mflow)
+    fn invalid_metric(msg: &str) -> Self {
         Self {
             status: ErrorStatus::Permanent,
-            kind: ContourErrorKind::InvalidArray,
-            message: format!("array of length {array_size} invalid for this `Order`"),
+            kind: ContourErrorKind::InvalidMetric,
+            message: format!("metric was invalid: {msg}"),
         }
     }
 
-    fn permanent(message: String) -> Self {
+    fn invalid_array(array_size: usize) -> Self {
         Self {
             status: ErrorStatus::Permanent,
-            kind: ContourErrorKind::Other,
-            message,
+            kind: ContourErrorKind::InvalidArraySize,
+            message: format!("array of length {array_size} invalid for this `Contours`"),
         }
     }
 }

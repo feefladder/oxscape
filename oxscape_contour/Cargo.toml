@@ -20,3 +20,13 @@ metrics = ["dep:oxscape_flowmets"]
 [dev-dependencies]
 proptest = "1.10.0"
 
+[lints.rust]
+unused_qualifications = "warn"
+missing_docs = "warn"
+
+[lints.clippy]
+pedantic = "warn"
+undocumented_unsafe_blocks = "warn"
+multiple_unsafe_ops_per_block = "warn"
+unnecessary_safety_doc = "warn"
+non_send_fields_in_send_ty = "warn"

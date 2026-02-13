@@ -1,6 +1,6 @@
+//! Wasm bindings for parallel erosion
 use js_sys::Float32Array;
 use oxscape_contour::mflow;
-use oxscape_contour::mflow::metrics::Dinf;
 use oxscape_contour::mflow::metrics::dinf;
 use oxscape_contour::sflow;
 use oxscape_contour::sflow::metrics::D8;
@@ -10,11 +10,9 @@ use oxscape_erode::Params;
 use oxscape_erode::add_uplift;
 use oxscape_erode::fill_deps::priority_flood_wei2018;
 use oxscape_erode::{mflow as emflow, sflow as esflow};
-use wasm_bindgen::convert::WasmAbi;
 use wasm_bindgen::prelude::*;
 
-use js_sys::{Float64Array, Uint32Array};
-use ordered_float::OrderedFloat;
+use js_sys::Uint32Array;
 use rayon::prelude::*;
 
 use rand::Rng;
@@ -74,7 +72,7 @@ pub struct Simulation {
     prev_dem: Vec<f32>,
     acc: Vec<f32>,
     params: WasmParams,
-    order: Orders,
+    order: Contourss,
 }
 
 #[derive(Debug)]
@@ -84,47 +82,47 @@ pub enum Metrics<S: sflow::FlowMetric<f32>, M: mflow::FlowMetric<f32>> {
 }
 
 #[derive(Debug)]
-pub enum Orders {
-    SFlow(sflow::Order),
-    MFlow(mflow::Order<f32>),
+pub enum Contourss {
+    SFlow(sflow::Contours),
+    MFlow(mflow::Contours<f32>),
 }
 
-impl Orders {
+impl Contourss {
     pub fn meta(&self) -> &GridMeta {
         match self {
-            Orders::SFlow(o) => o.meta(),
-            Orders::MFlow(o) => o.meta(),
+            Contourss::SFlow(o) => o.meta(),
+            Contourss::MFlow(o) => o.meta(),
         }
     }
 
     fn stack(&self) -> &[usize] {
         match self {
-            Orders::SFlow(o) => o.stack(),
-            Orders::MFlow(o) => o.stack(),
+            Contourss::SFlow(o) => o.stack(),
+            Contourss::MFlow(o) => o.stack(),
         }
     }
 
     fn levels(&self) -> &[usize] {
         match self {
-            Orders::SFlow(o) => o.levels(),
-            Orders::MFlow(o) => o.levels(),
+            Contourss::SFlow(o) => o.levels(),
+            Contourss::MFlow(o) => o.levels(),
         }
     }
 
     // fn reorder_metric<S: sflow::FlowMetric + Debug, M: mflow::FlowMetric + Debug>(&mut self, dem: &[f32], metric: Metrics<S, M>) -> Result<(), JsValue> {
     //     match (self, metric) {
-    //         (Orders::SFlow(o), Metrics::SFlow(m)) => o.reorder(dem, m).map_err(|e| e.to_string().into()),
-    //         (Orders::MFlow(o), Metrics::MFlow(m)) => o.reorder(dem, m).map_err(|e| e.to_string().into()),
+    //         (Contourss::SFlow(o), Metrics::SFlow(m)) => o.reorder(dem, m).map_err(|e| e.to_string().into()),
+    //         (Contourss::MFlow(o), Metrics::MFlow(m)) => o.reorder(dem, m).map_err(|e| e.to_string().into()),
     //         (o,m) => Err(format!("order {o:?} does not match metric {m:?}").into())
     //     }
     // }
 
     fn reorder(&mut self, dem: &[f32]) -> Result<(), JsValue> {
         match self {
-            Orders::MFlow(o) => o
+            Contourss::MFlow(o) => o
                 .reorder(dem, &mut dinf())
                 .map_err(|e| e.to_string().into()),
-            Orders::SFlow(o) => o.reorder(dem, &mut D8).map_err(|e| e.to_string().into()),
+            Contourss::SFlow(o) => o.reorder(dem, &mut D8).map_err(|e| e.to_string().into()),
         }
     }
 }
@@ -138,7 +136,7 @@ impl Simulation {
         let prev_dem = vec![0.0; meta.size()];
         let acc = vec![TFlow::no_flow(); meta.size()];
 
-        let order = Orders::MFlow(mflow::Order::empty(meta));
+        let order = Contourss::MFlow(mflow::Contours::empty(meta));
         let mut res = Self {
             dem,
             prev_dem,
@@ -182,22 +180,22 @@ impl Simulation {
     #[wasm_bindgen]
     pub fn switch(&mut self) {
         self.order = match &self.order {
-            Orders::MFlow(o) => Orders::SFlow(sflow::Order::empty(o.meta().clone())),
-            Orders::SFlow(o) => Orders::MFlow(mflow::Order::empty(o.meta().clone())),
+            Contourss::MFlow(o) => Contourss::SFlow(sflow::Contours::empty(o.meta().clone())),
+            Contourss::SFlow(o) => Contourss::MFlow(mflow::Contours::empty(o.meta().clone())),
         }
     }
 
     #[wasm_bindgen]
     pub fn step(&mut self) -> Result<f32, JsValue> {
         match &mut self.order {
-            Orders::MFlow(o) => {
+            Contourss::MFlow(o) => {
                 o.reorder(&self.dem, &mut dinf())
                     .map_err(|e| e.to_string())?;
                 emflow::accum(o, self.params.cell_area, &mut self.acc);
                 add_uplift(o.meta(), &self.params.into(), &mut self.dem);
                 emflow::erode(o, &self.params.into(), &self.acc, &mut self.dem);
             }
-            Orders::SFlow(o) => {
+            Contourss::SFlow(o) => {
                 o.reorder(&self.dem, &mut D8).map_err(|e| e.to_string())?;
                 esflow::accum(o, &self.params.into(), &mut self.acc);
                 add_uplift(o.meta(), &self.params.into(), &mut self.dem);
@@ -208,9 +206,8 @@ impl Simulation {
             .dem
             .par_iter()
             .zip(self.prev_dem.par_iter())
-            .map(|(cur, prev)| OrderedFloat((cur - prev).abs()))
-            .max()
-            .map(|v| v.into())
+            .map(|(cur, prev)| (cur - prev).abs())
+            .max_by(|a, b| a.total_cmp(b))
             .ok_or("Should not step with empty array!".into());
         self.prev_dem.copy_from_slice(&self.dem);
         res
@@ -251,10 +248,11 @@ impl Simulation {
     /// on non-32 bit pointer targets
     #[wasm_bindgen]
     pub unsafe fn levels(&self) -> Uint32Array {
-        let lvls = self.order.levels();
+        let contours = self.order.levels();
         assert_eq!(std::mem::size_of::<usize>(), std::mem::size_of::<u32>());
         unsafe {
-            let u32_slice = std::slice::from_raw_parts(lvls.as_ptr() as *const u32, lvls.len());
+            let u32_slice =
+                std::slice::from_raw_parts(contours.as_ptr() as *const u32, contours.len());
             Uint32Array::view(u32_slice)
         }
     }
@@ -271,6 +269,7 @@ impl Simulation {
     ///
     /// on non-32 bit pointer targets
     #[wasm_bindgen]
+    #[allow(unused_qualifications)]
     pub unsafe fn stack(&self) -> Uint32Array {
         let stack = self.order.stack();
         assert_eq!(std::mem::size_of::<usize>(), std::mem::size_of::<u32>());
@@ -314,7 +313,7 @@ mod tests {
             [0.0, 0.0, 0.0, 0.0, 0.5265574090027738, 0.0, 0.0, 0.0, 0.0]
         );
         match sim.order {
-            Orders::MFlow(o) => {
+            Contourss::MFlow(o) => {
                 assert_eq!(
                     o.flows(),
                     [
