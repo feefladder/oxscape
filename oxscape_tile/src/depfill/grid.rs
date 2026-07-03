@@ -22,6 +22,7 @@ pub trait FillGrid<T> {
     fn neighbour(&self, coord: &TileCoord, dir: Dir) -> Option<TileCoord>;
 }
 
+/// row-major, dense fill grid
 pub struct VecFillGrid<T> {
     meta: GridMeta,
     data: Vec<FillData<T>>,

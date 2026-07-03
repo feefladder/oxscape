@@ -30,6 +30,7 @@ pub struct FillData<T> {
 }
 
 impl<T> FillData<T> {
+    /// Create a new [`FillData`] for a single tile coordinate, spill graph and edge data
     pub fn new(
         tile_coord: TileCoord,
         meta: GridMeta,
@@ -45,12 +46,41 @@ impl<T> FillData<T> {
         }
     }
 
+    /// Get the spill graph for this [`FillData`]
     pub fn spill_graph(&self) -> &SpillGraph<T> {
         &self.spill_graph
     }
 }
 
 #[derive(Debug, Clone)]
+/// Fill state of a Zhou depression filling pass
+///
+/// This is separate from the labels or dem arrays and just tracks the front of
+/// the BFS/priority queue.
+///
+/// ```
+/// use oxscape_core::GridMeta;
+/// use oxscape_tile::depfill::ZhouFillState;
+/// use oxscape_tile::depfill::NOT_FILLED;
+/// let meta = GridMeta::new(3,3);
+/// let mut dem = [
+///  2.0,1.0,2.0,
+///  2.0,0.0,2.0,
+///  2.0,2.0,2.0,
+/// ];
+/// let mut labels = [NOT_FILLED;9];
+/// let mut fill_state = ZhouFillState::new(0);
+/// fill_state.add_edges(&meta, &dem);
+/// while fill_state.step(&meta, &mut dem, &mut labels, |a,b| {}) {
+///     eprintln!("{fill_state:?}");
+/// }
+///
+/// assert_eq!(dem, [
+///  2.0,1.0,2.0,
+///  2.0,1.0,2.0,
+///  2.0,2.0,2.0,
+/// ])
+/// ```
 pub struct ZhouFillState<T: Float> {
     /// The priority queue that holds boundary cells
     priority_queue: BinaryHeap<Cell<T>>,
@@ -62,6 +92,7 @@ pub struct ZhouFillState<T: Float> {
 }
 
 impl<T: Float + NextUp + TotalOrder> ZhouFillState<T> {
+    /// Create a new, empty ZhouFillState starting at the given label
     pub fn new(start_label: TLabel) -> Self {
         Self {
             priority_queue: BinaryHeap::new(),
@@ -269,24 +300,34 @@ pub fn fill_zhou2016<T: Float + NextUp + TotalOrder>(
     while state.step(meta, dem, labels, |_, _| {}) {}
 }
 
+/// Depression-fill the dem while marking spill elevations between watersheds
+///
+/// ```
+/// let dem = [
+///     0,1,0,
+///     1,2,1,
+///     0,1,0,
+/// ];
+/// ```
+///
 pub fn fill_zhou_watersheds<T: Float + NextUp + TotalOrder + Debug>(
     meta: &GridMeta,
     dem: &mut [T],
-) -> (Vec<TLabel>, SpillGraph<T>) {
-    let mut labels = vec![NOT_FILLED; meta.size()];
+    labels: &mut [TLabel],
+) -> SpillGraph<T> {
     let mut spill_graph = vec![HashMap::new(); 2 * meta.width() + 2 * meta.height()];
     let mut fillstate = ZhouFillState::new(0);
     fillstate.add_edges(meta, dem);
     while fillstate.step(
         meta,
         dem,
-        &mut labels,
+        labels,
         |(my_label, n_label), (my_elev, n_elev)| {
             watersheds_meet(my_label, n_label, my_elev, n_elev, &mut spill_graph)
         },
     ) {}
     spill_graph.truncate(usize::try_from(*fillstate.current_label()).unwrap());
-    (labels, spill_graph)
+    spill_graph
 }
 
 pub fn watersheds_meet<T: Float + Debug>(
@@ -751,18 +792,17 @@ mod test {
         let meta = GridMeta::new(7, 7);
         let supermeta = GridMeta::new(3, 3);
         let mut dems = tiled.map(|tile| tile.map(|v| v as f64));
-        let mut labels_grid = Vec::with_capacity(9);
+        let mut labels_grid = vec![vec![NOT_FILLED;meta.size()];supermeta.size()];
         let mut spillgraphs = Vec::with_capacity(supermeta.size());
-        for (idx, dem) in dems.iter_mut().enumerate() {
-            let (labels, graph) =  fill_zhou_watersheds(&meta, dem);
+        for (idx, (dem,labels)) in dems.iter_mut().zip(&mut labels_grid).enumerate() {
+            let graph =  fill_zhou_watersheds(&meta, dem,labels);
 
             meta.print(&dem.map(|v| v as u32));
             assert_eq!(dem, &filled[idx].map(|v| v as f64));
             meta.print(&labels);
-            assert_eq!(&labels, &sheds[idx]);
+            assert_eq!(labels, &sheds[idx]);
 
             assert_eq!(graph, graphs[idx]);
-            labels_grid.push(labels);
             spillgraphs.push(graph);
         }
 
@@ -892,5 +932,27 @@ mod test {
             3.0,4.0,4.0,
             3.0,1.0,3.0
         ]);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_zhou_fill_state_doctest() {
+        let meta = GridMeta::new(3, 3);
+        let mut dem = [
+            2.0,1.0,2.0,
+            2.0,0.0,2.0,
+            2.0,2.0,2.0
+        ];
+        let mut labels = [NOT_FILLED; 9];
+        let mut fill_state = ZhouFillState::new(0);
+        fill_state.add_edges(&meta, &dem);
+        while fill_state.step(&meta, &mut dem, &mut labels, |a, b| {}) {
+            println!("{fill_state:?}");
+        }
+        assert_eq!(dem, [
+            2.0,1.0,2.0,
+            2.0,1.0,2.0,
+            2.0,2.0,2.0,
+        ])
     }
 }
