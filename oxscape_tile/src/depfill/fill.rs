@@ -58,6 +58,9 @@ impl<T> FillData<T> {
 /// This is separate from the labels or dem arrays and just tracks the front of
 /// the BFS/priority queue.
 ///
+/// Mainly useful if you want fine-grained control over the depression filling
+/// process. For just filling a DEM, consider [`fill_zhou2016`] or
+/// [`fill_zhou_watersheds`] convenience functions.
 /// ```
 /// use oxscape_core::GridMeta;
 /// use oxscape_tile::depfill::ZhouFillState;
@@ -71,9 +74,7 @@ impl<T> FillData<T> {
 /// let mut labels = [NOT_FILLED;9];
 /// let mut fill_state = ZhouFillState::new(0);
 /// fill_state.add_edges(&meta, &dem);
-/// while fill_state.step(&meta, &mut dem, &mut labels, |a,b| {}) {
-///     eprintln!("{fill_state:?}");
-/// }
+/// while fill_state.step(&meta, &mut dem, &mut labels, |a,b| {}) {}
 ///
 /// assert_eq!(dem, [
 ///  2.0,1.0,2.0,
@@ -102,15 +103,33 @@ impl<T: Float + NextUp + TotalOrder> ZhouFillState<T> {
         }
     }
 
+    /// Get immutable access to the underlying priority queue
+    ///
+    /// This is the `O(Log(n))` queue that runs in-order to determine the lowest
+    /// cell that borders a depression
     pub fn priority_queue(&self) -> &BinaryHeap<Cell<T>> {
         &self.priority_queue
     }
+
+    /// Get immutable access to the underlying slope queue
+    ///
+    /// This is a normal amortized `O(1)` queue that adds all slope cells. All
+    /// cells lower than the current are added to the priority queue
     pub fn slope_queue(&self) -> &VecDeque<usize> {
         &self.slope_queue
     }
+
+    /// Get immutable access to the underlying depression queue
+    ///
+    /// This a normal amortized `O(1)` queue that fills all lower cells to the
+    /// level of the current cell and adds them to the slope queue otherwise
     pub fn depression_queue(&self) -> &VecDeque<usize> {
         &self.depression_queue
     }
+
+    /// Get immutable access to the current label
+    ///
+    /// This is the label that the
     pub fn current_label(&self) -> &TLabel {
         &self.current_label
     }
@@ -161,6 +180,8 @@ impl<T: Float + NextUp + TotalOrder> ZhouFillState<T> {
     /// perform a single step, returns false when done
     ///
     /// This increments the slope, depression or priority queue
+    ///
+    /// You can pass a function to define what happens when two watersheds meet
     pub fn step<WM: FnMut((TLabel, TLabel), (T, T))>(
         &mut self,
         meta: &GridMeta,
@@ -172,14 +193,17 @@ impl<T: Float + NextUp + TotalOrder> ZhouFillState<T> {
         if let Some(di) = self.depression_queue.pop_front() {
             // Fill depression
             let (dep_x, dep_y) = meta.i_to_xy(di);
+            // check all neighbours
             for dep_dir in 0..8 {
+                // if we're on the edge, some directions don't have neighbours
                 let Some(ndi) = meta.try_shift(dep_x, dep_y, dep_dir) else {
                     continue;
                 };
 
-                watersheds_meet((labels[di], labels[ndi]), (dem[di], dem[ndi]));
-
+                // skip if already processed
                 if labels[ndi] != NOT_FILLED {
+                    // user-supplied function
+                    watersheds_meet((labels[di], labels[ndi]), (dem[di], dem[ndi]));
                     continue;
                 }
 
@@ -205,10 +229,10 @@ impl<T: Float + NextUp + TotalOrder> ZhouFillState<T> {
                     continue;
                 };
 
-                watersheds_meet((labels[si], labels[nsi]), (dem[si], dem[nsi]));
-
                 // check if already processed
                 if labels[nsi] != NOT_FILLED {
+                    // user-supplied function
+                    watersheds_meet((labels[si], labels[nsi]), (dem[si], dem[nsi]));
                     continue;
                 }
 
