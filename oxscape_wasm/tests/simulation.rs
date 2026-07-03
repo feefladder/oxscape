@@ -1,3 +1,5 @@
+//! Tests building a simulation
+//!
 use oxscape_erode::Params;
 use oxscape_wasm::{Simulation, WasmParams};
 use wasm_bindgen_test::*;

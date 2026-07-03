@@ -10,6 +10,8 @@ use oxscape_erode::Params;
 use oxscape_erode::add_uplift;
 use oxscape_erode::fill_deps::priority_flood_wei2018;
 use oxscape_erode::{mflow as emflow, sflow as esflow};
+use rand::RngExt;
+use rand_chacha::ChaCha20Rng;
 use wasm_bindgen::prelude::*;
 
 use js_sys::Uint32Array;
@@ -153,7 +155,7 @@ impl Simulation {
 
     #[wasm_bindgen]
     pub fn random_dem(&mut self, seed: u32) -> Result<(), JsValue> {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
+        let mut rng = ChaCha20Rng::seed_from_u64(seed as u64);
         self.dem
             .chunks_exact_mut(self.order.meta().width())
             .take(self.order.meta().height() - 1)
@@ -308,10 +310,7 @@ mod tests {
     #[test]
     fn test_dinf() {
         let sim = Simulation::new(3, 3, 42).unwrap();
-        assert_eq!(
-            sim.dem,
-            [0.0, 0.0, 0.0, 0.0, 0.5265574090027738, 0.0, 0.0, 0.0, 0.0]
-        );
+        assert_eq!(sim.dem, [0.0, 0.0, 0.0, 0.0, 0.8426099, 0.0, 0.0, 0.0, 0.0]);
         match sim.order {
             Contourss::MFlow(o) => {
                 assert_eq!(
