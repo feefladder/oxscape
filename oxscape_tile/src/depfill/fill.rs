@@ -29,6 +29,10 @@ pub struct FillData<T> {
     pub(crate) label_edges: Vec<TLabel>,
 }
 
+/// A point where two watersheds meet
+///
+/// This does not say anything about it being a saddle point, only that it is on
+/// a ridge. (a saddle point is where the ridge is horizontal).
 #[derive(Debug, PartialEq)]
 #[non_exhaustive]
 pub struct RidgePoint<T> {

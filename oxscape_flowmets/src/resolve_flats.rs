@@ -212,7 +212,7 @@ mod test {
         assert_eq!(receivers, [
             NO_FLOW,NO_FLOW,      0,NO_FLOW,
             NO_FLOW,      2,      1,NO_FLOW,
-            NO_FLOW,      3,      2,NO_FLOW, // 3 is kinda arbitrary
+            NO_FLOW,      3,      2,NO_FLOW, // 3 is kinda arbitrary and decided by visiting order
             NO_FLOW,NO_FLOW,NO_FLOW,NO_FLOW,
         ]);
     }

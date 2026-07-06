@@ -8,8 +8,16 @@ use crate::{
     tile::{TileCoord, TileInfo},
 };
 
-// Ideally there'd be some logic to this
+// Ideally there'd be some logic to this, I don't like arbitrary iteration order
+/// A mapping from coordinate to info
+///
+/// Currently only used by [`Producer`]
 pub type TileGrid = HashMap<TileCoord, TileInfo>;
+
+/// For each tile, the label-indexed elevations to raise watersheds to
+///
+/// These will contain the spill elevation of each watershed. If it wasn't a
+/// global depression, that will be the same as the outputted elevation.
 pub type RaiseGrid<T> = HashMap<TileInfo, Vec<T>>;
 
 pub trait FillGrid<T> {
@@ -66,7 +74,9 @@ impl<T> FillGrid<T> for VecFillGrid<T> {
     }
 }
 
+/// Sparse grid
 pub struct HashMapFillGrid<T> {
+    /// grid
     pub grid: HashMap<TileCoord, FillData<T>>,
 }
 

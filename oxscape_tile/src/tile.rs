@@ -15,7 +15,9 @@ use oxscape_core::GridMeta;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct TileCoord {
+    /// x coordinate
     pub x: usize,
+    /// y coordinate
     pub y: usize,
 }
 
