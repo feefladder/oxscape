@@ -10,7 +10,7 @@ use num_traits::float::{Float, TotalOrder};
 use oxscape_core::{Dir, GridMeta, NextUp};
 
 use crate::{
-    depfill::{FillData, SpillGraph, ZhouFillState, watersheds_meet},
+    depfill::{FillData, RidgePoint, SpillGraph, ZhouFillState, watersheds_meet},
     producer::{ConsumerMessage, ProducerMessage},
     tile::TileCoord,
 };
@@ -62,7 +62,13 @@ where
                         info.meta(),
                         dem,
                         &mut labels,
-                        |(my_label, n_label), (my_elev, n_elev)| {
+                        |RidgePoint {
+                             my_label,
+                             n_label,
+                             my_elev,
+                             n_elev,
+                             ..
+                         }| {
                             watersheds_meet(my_label, n_label, my_elev, n_elev, &mut spill_graph)
                         },
                     ) {}

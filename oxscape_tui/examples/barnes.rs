@@ -62,7 +62,7 @@ const TILED: [[u32; 49]; 9] = [
 ];
 fn main() -> Result<()> {
     let mut terminal = ratatui::init();
-    let gradients = [colorous::MAGMA]; //, colorous::BROWN_GREEN];
+    let gradients = [colorous::RED_BLUE]; //, colorous::PLASMA];
     let mut play: bool = false;
     let mut tiles = Vec::with_capacity(9);
     let meta = GridMeta::new(7, 7);

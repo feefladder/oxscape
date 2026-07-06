@@ -6,9 +6,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-bytemuck = "1.24.0"
+bytemuck = {workspace = true}
 num-traits = "0.2.19"
-rayon = "1.11"
+rayon = {workspace = true}
 oxscape_core = {version = "0.1", path = "../oxscape_core"}
 oxscape_flowmets = {version = "0.1", path = "../oxscape_flowmets", optional = true}
 exn = "0.3.0"

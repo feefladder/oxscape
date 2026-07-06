@@ -97,7 +97,8 @@ or
 ```
 template<class T> using Job2        = std::vector<accum_t>;
 ```
-is possible, as opposed to a more complex one-to-many map
+is possible, as opposed to a more complex one-to-many map. So I think multiflow is quite an easy, possible step up
+
 ### runtime for nonlinear relationships
 
 basically, there are three "types" of operations that determine how they can be run in parallel on a chunked dem. Barnes did some smartness for depression filling and flow accumulation, which was possible because of their linearity. That is: flow accumulation for n cells is exactly the same as n times flow accumulation for a single cell:

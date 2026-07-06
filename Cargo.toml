@@ -13,3 +13,20 @@ resolver = "2"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://codeberg.org/feefladder/oxscape/"
+
+[workspace.dependencies]
+oxscape_core = { path = "oxscape_core"}
+oxscape_contour = {path = "oxscape_contour"}
+oxscape_flowmets = {path = "oxscape_flowmets"}
+oxscape_erode = {path = "oxscape_erode"}
+oxscape_tile = {path = "oxscape_tile"}
+oxscape_tui = {path = "oxscape_tui"}
+# parallel
+rayon = "1.11.0"
+# generics
+num-traits = "0.2.19"
+# deterministic, yet random dem generation for sims/tests
+rand = {version = "0.10.2"}
+rand_chacha = "0.10.0"
+# mainly casting [[usize;8];N] -> [usize;8*N]
+bytemuck = "1.24.0"

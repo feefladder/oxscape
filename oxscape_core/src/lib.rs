@@ -1,8 +1,9 @@
 use exn::Exn;
+use num_traits::PrimInt;
 use num_traits::float::Float;
 use std::f64::consts::SQRT_2;
 use std::fmt::{Debug, Display};
-use std::ops::Range;
+use std::ops::{Add, Range, Rem};
 
 use crate::Dir::*;
 use crate::error::GridError;

@@ -9,6 +9,7 @@ rustflags = [
   "-C", "link-arg=--export=__tls_align",
   "-C", "link-arg=--export=__tls_base"
 ]
+runner = 'wasm-bindgen-test-runner'
 
 [unstable]
 build-std = ["panic_abort", "std"]

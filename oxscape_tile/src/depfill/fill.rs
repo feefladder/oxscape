@@ -29,6 +29,17 @@ pub struct FillData<T> {
     pub(crate) label_edges: Vec<TLabel>,
 }
 
+#[derive(Debug, PartialEq)]
+#[non_exhaustive]
+pub struct RidgePoint<T> {
+    pub my_label: TLabel,
+    pub n_label: TLabel,
+    pub my_elev: T,
+    pub n_elev: T,
+    pub my_cell: usize,
+    pub n_cell: usize,
+}
+
 impl<T> FillData<T> {
     /// Create a new [`FillData`] for a single tile coordinate, spill graph and edge data
     pub fn new(
@@ -182,7 +193,7 @@ impl<T: Float + NextUp + TotalOrder> ZhouFillState<T> {
     /// This increments the slope, depression or priority queue
     ///
     /// You can pass a function to define what happens when two watersheds meet
-    pub fn step<WM: FnMut((TLabel, TLabel), (T, T))>(
+    pub fn step<WM: FnMut(RidgePoint<T>)>(
         &mut self,
         meta: &GridMeta,
         dem: &mut [T],
@@ -203,7 +214,15 @@ impl<T: Float + NextUp + TotalOrder> ZhouFillState<T> {
                 // skip if already processed
                 if labels[ndi] != NOT_FILLED {
                     // user-supplied function
-                    watersheds_meet((labels[di], labels[ndi]), (dem[di], dem[ndi]));
+
+                    watersheds_meet(RidgePoint {
+                        my_label: labels[di],
+                        n_label: labels[ndi],
+                        my_elev: dem[di],
+                        n_elev: dem[ndi],
+                        my_cell: di,
+                        n_cell: ndi,
+                    });
                     continue;
                 }
 
@@ -232,7 +251,14 @@ impl<T: Float + NextUp + TotalOrder> ZhouFillState<T> {
                 // check if already processed
                 if labels[nsi] != NOT_FILLED {
                     // user-supplied function
-                    watersheds_meet((labels[si], labels[nsi]), (dem[si], dem[nsi]));
+                    watersheds_meet(RidgePoint {
+                        my_label: labels[si],
+                        n_label: labels[nsi],
+                        my_elev: dem[si],
+                        n_elev: dem[nsi],
+                        my_cell: si,
+                        n_cell: nsi,
+                    });
                     continue;
                 }
 
@@ -292,7 +318,14 @@ impl<T: Float + NextUp + TotalOrder> ZhouFillState<T> {
                     continue;
                 };
 
-                watersheds_meet((labels[n], labels[ni]), (dem[n], dem[ni]));
+                watersheds_meet(RidgePoint {
+                    my_label: labels[n],
+                    n_label: labels[ni],
+                    my_elev: dem[n],
+                    n_elev: dem[ni],
+                    my_cell: n,
+                    n_cell: ni,
+                });
 
                 if labels[ni] != NOT_FILLED {
                     continue;
@@ -321,7 +354,7 @@ pub fn fill_zhou2016<T: Float + NextUp + TotalOrder>(
 ) {
     let mut state = ZhouFillState::<T>::new(0);
     state.add_edges(meta, dem);
-    while state.step(meta, dem, labels, |_, _| {}) {}
+    while state.step(meta, dem, labels, |_| {}) {}
 }
 
 /// Depression-fill the dem while marking spill elevations between watersheds
@@ -346,9 +379,13 @@ pub fn fill_zhou_watersheds<T: Float + NextUp + TotalOrder + Debug>(
         meta,
         dem,
         labels,
-        |(my_label, n_label), (my_elev, n_elev)| {
-            watersheds_meet(my_label, n_label, my_elev, n_elev, &mut spill_graph)
-        },
+        |RidgePoint {
+             my_label,
+             n_label,
+             my_elev,
+             n_elev,
+             ..
+         }| { watersheds_meet(my_label, n_label, my_elev, n_elev, &mut spill_graph) },
     ) {}
     spill_graph.truncate(usize::try_from(*fillstate.current_label()).unwrap());
     spill_graph
@@ -970,7 +1007,7 @@ mod test {
         let mut labels = [NOT_FILLED; 9];
         let mut fill_state = ZhouFillState::new(0);
         fill_state.add_edges(&meta, &dem);
-        while fill_state.step(&meta, &mut dem, &mut labels, |a, b| {}) {
+        while fill_state.step(&meta, &mut dem, &mut labels, |_| {}) {
             println!("{fill_state:?}");
         }
         assert_eq!(dem, [

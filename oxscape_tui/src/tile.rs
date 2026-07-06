@@ -4,6 +4,7 @@ use colorous::Gradient;
 use oxscape_core::GridMeta;
 use oxscape_tile::TLabel;
 use oxscape_tile::TileCoord;
+use oxscape_tile::depfill::RidgePoint;
 use oxscape_tile::depfill::{FillData, ROI_FLAG, SpillGraph, ZhouFillState, watersheds_meet};
 use ratatui::prelude::*;
 
@@ -59,7 +60,13 @@ impl Tile {
             &self.meta,
             &mut self.dem,
             &mut self.labels,
-            |(my_label, n_label), (my_elev, n_elev)| {
+            |RidgePoint {
+                 my_label,
+                 n_label,
+                 my_elev,
+                 n_elev,
+                 ..
+             }| {
                 watersheds_meet(my_label, n_label, my_elev, n_elev, &mut self.spill_graph);
             },
         )

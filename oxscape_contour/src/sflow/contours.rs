@@ -102,7 +102,7 @@ fn compute_donors_par(
             // bounds check
             assert!(n < meta.size());
             // SAFETY: we are in-bounds: `donors.len()==meta.size()>n`
-            let addr = unsafe { r.0.add(n * 8 + GridMeta::rev(usize::from(*dir))) };
+            let addr = unsafe { r.0.add(n * 8 + GridMeta::rev((*dir) as usize)) };
             // SAFETY: we are the only cell from this direction.
             //
             // that is: other cells will write to different direction indices in this array
@@ -378,6 +378,7 @@ impl Contours {
         self.meta
             .check(dem)
             .or_raise(|| ContourError::invalid_array(dem.len()))?;
+        self.receivers.fill(NO_FLOW);
         metric
             .metric(&self.meta, dem, &mut self.receivers)
             .or_raise(|| ContourError::metric_failed(&metric))?;

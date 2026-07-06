@@ -79,7 +79,7 @@ use crate::TLabel;
 
 mod fill;
 pub use fill::{
-    FillData, NOT_FILLED, ROI_FLAG, ZhouFillState, fill_zhou_watersheds, fill_zhou2016,
+    FillData, NOT_FILLED, ROI_FLAG, RidgePoint, ZhouFillState, fill_zhou_watersheds, fill_zhou2016,
     raise_catchments, watersheds_meet,
 };
 mod fill_graph;

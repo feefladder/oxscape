@@ -16,7 +16,6 @@ pub fn compute_receivers<T: Float + Sync>(
 ) -> Result<(), Exn<GridError>> {
     meta.check(h)?;
     meta.check(rec)?;
-    rec.fill(NO_FLOW);
     rec.par_chunks_exact_mut(meta.width())
         .enumerate()
         .take(meta.height() - 1)
@@ -24,6 +23,15 @@ pub fn compute_receivers<T: Float + Sync>(
         .for_each(|(y, row)| {
             #[allow(clippy::needless_range_loop)]
             for x in 1..meta.width() - 1 {
+                // We also allow for flat-resolved flow grids, in which flats
+                // are already determined
+                //
+                // not sure what this does for soundness though. Ideally there'd
+                // be some proof that arbitrary flow directions are sound. Which is implicit in making
+                // `impl FlowMetric` safe.
+                if row[x] != NO_FLOW {
+                    continue;
+                }
                 let c: usize = y * meta.width() + x;
 
                 let mut max_slope = T::zero();
