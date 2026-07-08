@@ -6,7 +6,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-exn = "0.3.0"
-num-traits = "0.2.19"
-oxscape_core = { version = "0.1.0", path = "../oxscape_core" }
-rayon = "1.11.0"
+num-traits = {workspace = true}
+oxscape_core = {workspace = true}
+rayon = {workspace = true}
+exn = {workspace = true}
+derive_more = {workspace = true}

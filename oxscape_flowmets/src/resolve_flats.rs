@@ -30,9 +30,15 @@
 //!
 
 use std::collections::VecDeque;
+use std::error::Error;
 use std::fmt::Debug;
 
+use derive_more::Display;
+use exn::ensure;
+
 use num_traits::Float;
+use rayon::prelude::*;
+
 use oxscape_core::GridMeta;
 
 /// A level in this sense is a depression cell's distance-to-drain.
@@ -43,6 +49,10 @@ pub type TLevel = u32;
 /// This signals that a cell is not processed
 const UNPROCESSED: TLevel = u32::MAX;
 
+#[derive(Debug, Display, Clone)]
+pub struct FlatError(String);
+impl Error for FlatError {}
+
 /// Resolve flats where the shortest path to _any_ outlet is where it flows.
 ///
 /// This is a step away from mflow flat resolution, that's  why it's here. It seeds the
@@ -51,10 +61,50 @@ pub fn resolve_flats_shortest_distance<TElev: Float + Sync>(
     dem: &[TElev],
     receivers: &mut [u8],
 ) {
-    // seed the simulation with all draining cells that are part of a flat
-    // e.g. there is a neighbour such that dem[ni] == dem[i] and there is a neighbour such that dem[ni] < dem[i]
-    // Since these are draining cells, their flow can be determined by normal flow direction algorithms, any unvisited cells they go to
+    // seed the simulation with
     todo!()
+}
+
+/// Finds indices of draining cells that are part of a flat
+/// e.g. there is a neighbour such that dem[ni] == dem[i] and there is a neighbour such that dem[ni] < dem[i]
+/// Since these are draining cells, their flow can be determined by normal flow direction algorithms, any unvisited cells they go to
+pub fn flat_drains<TElev: Float + Sync>(
+    meta: &GridMeta,
+    dem: &[TElev],
+    drains: &mut Vec<usize>,
+) -> exn::Result<(), FlatError> {
+    ensure!(
+        meta.size() == dem.len(),
+        FlatError(format!(
+            "dimension mismatch: array of size {} cannot fit in a {:?} grid",
+            dem.len(),
+            meta
+        ))
+    );
+    drains.clear();
+
+    drains.par_extend((0..dem.len()).into_par_iter().filter_map(|i| {
+        let (x, y) = meta.i_to_xy(i);
+
+        let mut has_equal = false;
+        let mut has_lower = false;
+
+        for dir in 0..8 {
+            let Some(ni) = meta.try_shift(x, y, dir) else {
+                continue;
+            };
+
+            if dem[ni] == dem[i] {
+                has_equal = true;
+            } else if dem[ni] < dem[i] {
+                has_lower = true;
+            }
+        }
+
+        (has_equal && has_lower).then_some(i)
+    }));
+
+    Ok(())
 }
 
 pub mod sflow {
