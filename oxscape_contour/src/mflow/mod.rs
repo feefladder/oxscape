@@ -1,6 +1,12 @@
-mod contours;
+//! Multiflow graph traversal.
+//!
+//! These are slgihtly less efficient than single flow, since eight floats are
+//! needed for each cell's receivers.
 
-pub use contours::{Contours, FlowMetric};
+mod flow_order;
+
+pub use flow_order::{ContourAccessor, FlowMetric, FlowOrder};
+
 #[cfg(feature = "metrics")]
 pub mod metrics;
 
@@ -145,7 +151,7 @@ pub(crate) mod test {
         ];
         let mut s = vec![0;stack.len()];
         let mut contours = Vec::with_capacity(5);
-        generate_order(&mut nrec, &donor, &mut s, &mut contours);
+        generate_order(&mut nrec, &donor, &mut s, &mut contours).unwrap();
         assert_eq!(contours, levels);
         assert_eq!(s, stack);
         for l in 0..contours.len()-1 {
@@ -181,7 +187,7 @@ pub(crate) mod test {
         ];
         let mut s = vec![0;stack.len()];
         let mut contours = Vec::with_capacity(8);
-        generate_order(&mut nrec, &donor, &mut s, &mut contours);
+        generate_order(&mut nrec, &donor, &mut s, &mut contours).unwrap();
         assert_eq!(contours, levels);
         assert_eq!(s, stack);
         for l in 0..contours.len()-1 {

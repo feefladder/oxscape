@@ -11,6 +11,10 @@ use oxscape_core::{Flow, GridMeta, Result};
 use crate::mflow::{compute_donors, generate_order};
 use crate::{Bazooka, ContourError, NOT_A_DONOR};
 
+/// Struct that allows accessing cells on this "contour" mutably and its
+/// receivers and donors immutably.
+///
+/// This is created by a [`FlowOrder`]
 pub struct ContourAccessor<'a, TArr: Send + Sync, TFlow: Flow> {
     arr: &'a Bazooka<TArr>,
     idx: usize,
@@ -55,10 +59,14 @@ impl<'a, TArr: Send + Sync + Zero + Copy, TFlow: Flow> ContourAccessor<'a, TArr,
         unsafe { addr.as_mut().unwrap() }
     }
 
+    /// The current cell's index
     pub fn idx(&self) -> usize {
         self.idx
     }
 
+    /// Get immutable access to the receivers of a cell
+    ///
+    /// If a direction is not a receiver (flow is 0.0), the corresponding value will be 0
     pub fn receivers(&self) -> [(TFlow, TArr); 8] {
         let mut res = [(TFlow::no_flow(), TArr::zero()); 8];
         self.flows[self.idx]
@@ -68,11 +76,12 @@ impl<'a, TArr: Send + Sync + Zero + Copy, TFlow: Flow> ContourAccessor<'a, TArr,
                 if *flow == TFlow::no_flow() {
                     return;
                 }
+                let n_shift = self.meta.shift(self.idx, dir as u8);
                 // SAFETY:
                 // - meta.shift function casts to isize and back, so we are within `isize`
                 // - meta.shift is also guaranteed to output a value within the allocation
                 #[allow(clippy::cast_possible_truncation)] // n in 0..8 range due to type
-                let addr = unsafe { self.arr.0.add(self.meta.shift(self.idx, dir as u8)) };
+                let addr = unsafe { self.arr.0.add(n_shift) };
                 // SAFETY: topological sorting is based on this flow metric.
                 // Therefore, any direction that is NOT TFlow::no_flow() is in a
                 // different (lower) level and can be safely accessed.
@@ -81,6 +90,10 @@ impl<'a, TArr: Send + Sync + Zero + Copy, TFlow: Flow> ContourAccessor<'a, TArr,
         res
     }
 
+    /// Get immutable access to the donors of this cell
+    ///
+    /// If a direction is not a donor (flow == 0.0), the corresponding value
+    /// will be 0.
     pub fn donors(&self) -> [(TFlow, TArr); 8] {
         let mut res = [(TFlow::no_flow(), TArr::zero()); 8];
         self.donors[self.idx]
@@ -105,14 +118,47 @@ impl<'a, TArr: Send + Sync + Zero + Copy, TFlow: Flow> ContourAccessor<'a, TArr,
     }
 }
 
+/// Flow order for graph traversal
+///
+/// Internally uses "contours": the hydrological meaning is that on a contour, no water flows sideways, only
+/// up or down. Therefore it is safe to process an entire contour in parallel.
+/// This naming diverges from the topologial "levels" and overloads GIS "contours", but is easier to explain
+/// imo.
 #[derive(Debug, Clone)]
-pub struct Contours<T: Float> {
+pub struct FlowOrder<T: Float> {
+    /// The structure of the grid
     meta: GridMeta,
+    /// Flow partitioning for each cell
     flows: Vec<[T; 8]>,
+    /// All donors of a cell
+    ///
+    /// A cell has at most 8 donors. I didn't really want to keep a separate
+    /// ndon array around, so each direction just encodes whether it's a donor
+    /// by not being [`NOT_A_DONOR`]. In that case, it's the donor's grid index.
     donors: Vec<[usize; 8]>,
+    /// The number of receivers for each cell
+    ///
+    /// This is relied upon for order generation and is only non-zero in between
+    /// `metric` and [`generate_order`]
     nrec: Vec<u8>,
+    /// The stack of a topological sort
+    ///
+    /// This is partitioned by [`self.contours`] to provide independent levels
+    /// that can be internally parallelized
+    ///
+    /// e.g.
+    /// ```
+    /// # use oxscape_core::GridMeta;
+    /// # use oxscape_contour::mflow::FlowOrder;
+    /// # let order: FlowOrder<f32> = FlowOrder::empty(GridMeta::new(42,42));
+    /// for contour in order.contours().windows(2).map(|w| &order.stack()[w[0]..w[1]]) {
+    ///  // do parallel stuff on everything on the same contour
+    ///  // The logic is that within a contour, no water flows,
+    /// }
+    /// ```
     stack: Vec<usize>,
-    levels: Vec<usize>,
+    /// Partitioning of the stack
+    contours: Vec<usize>,
 }
 
 /// Flowmetric to implement
@@ -135,8 +181,16 @@ pub struct Contours<T: Float> {
 /// number of receivers and flows only point downstream (no cycles).
 ///
 pub unsafe trait FlowMetric<TElev>: Debug {
+    /// The error type of this flow metric
     type Error: Error + Send + Sync + 'static;
+    /// The type for assigning flow partitioning
+    ///
+    /// Normally [`f32`] or [`f64`]
     type TFlow: Flow;
+    /// Apply the metric
+    ///
+    /// This should assign non-[`Flow::no_flow()`] values to receiving
+    /// directions. Receiving directions MUST have lower elevation.
     #[allow(clippy::missing_errors_doc)] // user-provided implementation
     fn metric(
         &mut self,
@@ -147,22 +201,44 @@ pub unsafe trait FlowMetric<TElev>: Debug {
     ) -> Result<(), Self::Error>;
 }
 
-impl<TFlow: Flow> Contours<TFlow> {
+impl<TFlow: Flow> FlowOrder<TFlow> {
+    /// The [`GridMeta`] of this grid
+    ///
+    /// any arrays passed in to [`Self::for_contours_bottom_up`] or
+    /// [`Self::for_contours_top_down`] should match this.
     #[must_use]
-    pub fn n_levels(&self) -> usize {
-        self.levels.len() - 1
+    pub fn meta(&self) -> &GridMeta {
+        &self.meta
     }
 
+    /// Create an empty [`FlowOrder`]
+    ///
+    /// This will initialize properly sized arrays for the grid
     #[must_use]
     pub fn empty(meta: GridMeta) -> Self {
         // SAFETY: we can create bogus flows, donors and nrec
         // as long as stack and levels are empty: no memory will be accessed
+        let flows = vec![[TFlow::no_flow(); 8]; meta.size()];
+        let donors = vec![[0; 8]; meta.size()];
+        let nrec = vec![0; meta.size()];
+        // SAFETY: stack and contours need to be empty
+        // If there are no cycles, the stack contains all cells
+        let stack = Vec::with_capacity(meta.size());
+        // From Barnes' code: https://github.com/r-barnes/Barnes2019-Landscape/blob/2274e4639ab2299701d306fe42f24380a7845795/fastscape_RB.cpp#L358
+        //
+        // It's difficult to know how much memory should be allocated for levels. For
+        // a square DEM with isotropic dispersion this is approximately sqrt(E/2). A
+        // diagonally tilted surface with isotropic dispersion may have sqrt(E)
+        // levels. A tortorously sinuous river may have up to E*E levels. We
+        // compromise and choose a number of levels equal to the perimiter because
+        // why not?
+        let contours = Vec::with_capacity(2 * meta.width() + 2 * meta.height());
         Self {
-            flows: vec![[TFlow::no_flow(); 8]; meta.size()],
-            donors: vec![[0; 8]; meta.size()],
-            nrec: vec![0; meta.size()],
-            stack: Vec::with_capacity(meta.size()),
-            levels: Vec::with_capacity(2 * meta.width() + 2 * meta.height()),
+            flows,
+            donors,
+            nrec,
+            stack,
+            contours,
             meta,
         }
     }
@@ -186,7 +262,7 @@ impl<TFlow: Flow> Contours<TFlow> {
             &mut self.nrec,
             &self.donors,
             &mut self.stack,
-            &mut self.levels,
+            &mut self.contours,
         )
         .or_raise(|| ContourError::invalid_metric("failed to generate order from metric"))
     }
@@ -228,7 +304,7 @@ impl<TFlow: Flow> Contours<TFlow> {
         // out-of-bounds data.
         assert!(data.len() == self.meta.size());
         let b = Bazooka(data.as_mut_ptr());
-        for level in self.levels.windows(2).map(|w| &self.stack[w[0]..w[1]]) {
+        for level in self.contours.windows(2).map(|w| &self.stack[w[0]..w[1]]) {
             level.par_iter().for_each(|v| {
                 // SAFETY: we have a sound topological sorting. The ContourAccessor
                 // only accesses donors and receivers, and those are on
@@ -263,7 +339,7 @@ impl<TFlow: Flow> Contours<TFlow> {
     ) {
         let b = Bazooka(data.as_mut_ptr());
         for level in self
-            .levels
+            .contours
             .windows(2)
             .rev()
             .map(|w| &self.stack[w[0]..w[1]])
@@ -285,26 +361,41 @@ impl<TFlow: Flow> Contours<TFlow> {
         }
     }
 
+    /// Get immutable access to the "contours" for debugging purposes
     #[must_use]
-    pub fn levels(&self) -> &[usize] {
-        &self.levels
+    pub fn contours(&self) -> &[usize] {
+        &self.contours
     }
 
+    /// The number of "contours"
+    ///
+    /// This is the number of parallel chunks of the graph.
+    #[must_use]
+    pub fn n_contours(&self) -> usize {
+        self.contours.len() - 1
+    }
+
+    /// Get immutable access to the stack for debugging purposes
     #[must_use]
     pub fn stack(&self) -> &[usize] {
         &self.stack
     }
 
-    #[must_use]
-    pub fn meta(&self) -> &GridMeta {
-        &self.meta
-    }
-
+    /// The flows assigned to each cell in the grid
+    ///
+    /// ```
+    /// use oxscape_core::{Flow, Dir};
+    /// let mut flows = [<f32 as Flow>::no_flow(); 8];
+    /// flows[Dir::Left as usize] = 1.0;
+    /// ```
     #[must_use]
     pub fn flows(&self) -> &[[TFlow; 8]] {
         &self.flows
     }
 
+    /// Get immutable access to the donors array for debugging purposes
+    ///
+    /// This is a direction->index map for each cell
     #[must_use]
     pub fn donors(&self) -> &[[usize; 8]] {
         &self.donors
@@ -320,16 +411,16 @@ mod test {
 
     #[test]
     fn test_order_single_level() {
-        let o = Contours {
+        let o = FlowOrder {
             meta: GridMeta::new(2, 2),
             // nothing flows anywhere, single level
             flows: vec![[TFlow::no_flow(); 8]; 4],
             donors: vec![[NOT_A_DONOR; 8]; 4],
             nrec: vec![0; 4],
             stack: vec![0, 1, 2, 3],
-            levels: vec![0, 4],
+            contours: vec![0, 4],
         };
-        assert_eq!(o.n_levels(), 1);
+        assert_eq!(o.n_contours(), 1);
         let mut data = [0, 1, 2, 3];
         o.for_contours_bottom_up(&mut data, |a| {
             assert_eq!(a.donors(), [(0.0, 0); 8]);
@@ -354,7 +445,7 @@ mod test {
         ];
         const N: usize = NOT_A_DONOR;
         let nf: f64 = TFlow::no_flow();
-        let o = Contours {
+        let o = FlowOrder {
             meta: GridMeta::new(2, 2),
             //
             // 1 2 3
@@ -376,9 +467,9 @@ mod test {
                 0, 2,
                 1, 3
             ],
-            levels: vec![0, 2, 4],
+            contours: vec![0, 2, 4],
         };
-        assert_eq!(o.n_levels(), 2);
+        assert_eq!(o.n_contours(), 2);
 
         println!("going up");
         // in this context, this is unsafe, because we have "unsound" order
@@ -410,7 +501,7 @@ mod test {
     #[rustfmt::skip]
     fn test_order_3() {
         let meta = GridMeta::new(3, 3);
-        let order = Contours::from_dem_metric(meta, &consts::H_3, &mut dinf()).unwrap();
+        let order = FlowOrder::from_dem_metric(meta, &consts::H_3, &mut dinf()).unwrap();
         assert_eq!(order.flows, vec![
             [0.0;8],[0.0;8],[0.0;8],
             [0.0;8],[0.0,0.590334470601733,0.40966552939826695,0.0,0.0, 0.0, 0.0, 0.0],[0.0;8],
@@ -419,7 +510,7 @@ mod test {
         assert_eq!(&order.stack, &[
             0,1,2,3,5,6,7,8,4
         ]);
-        assert_eq!(&order.levels, &[0,8,9]);
+        assert_eq!(&order.contours, &[0,8,9]);
         let mut acc = [1.0;9];
         order.for_contours_top_down(&mut acc, |c| {
             *c.cell() += c.donors().iter().map(|(frac, val)| frac*val).sum::<f64>()

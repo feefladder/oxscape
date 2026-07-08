@@ -20,13 +20,21 @@ pub type TileGrid = HashMap<TileCoord, TileInfo>;
 /// global depression, that will be the same as the outputted elevation.
 pub type RaiseGrid<T> = HashMap<TileInfo, Vec<T>>;
 
+/// All necessary methods to solve a global filling problem
+///
+/// That is: the connectivity info, which tiles are neighbours and a [`FillData`]
 pub trait FillGrid<T> {
+    /// Iterate over all tiles' fill data
     fn iter<'a>(&'a self) -> impl Iterator<Item = &'a FillData<T>>
     where
         T: 'a;
+    /// The number of tiles in the grid
     fn n_tiles(&self) -> usize;
+    /// Get fill data for a specific coordinate
     fn tile(&self, coord: &TileCoord) -> &FillData<T>;
+    /// Get the edge in a specific direction
     fn edge(&self, coord: &TileCoord, dir: Dir) -> (&[TLabel], &[T]);
+    /// Which tile is the neighbour in the given direction?
     fn neighbour(&self, coord: &TileCoord, dir: Dir) -> Option<TileCoord>;
 }
 
@@ -37,13 +45,21 @@ pub struct VecFillGrid<T> {
 }
 
 impl<T> VecFillGrid<T> {
+    /// Create a new grid with the given data
+    ///
+    /// Meta is a GridMeta for the grid-of-tiles
     pub fn new(meta: GridMeta, data: Vec<FillData<T>>) -> Self {
         Self { meta, data }
     }
 
+    /// Get immutable access to metadata (shape)
     pub fn meta(&self) -> &GridMeta {
         &self.meta
     }
+
+    /// Get immutable access to the data
+    ///
+    /// Access is normally done through the [`FillGrid`] trait.
     pub fn data(&self) -> &Vec<FillData<T>> {
         &self.data
     }

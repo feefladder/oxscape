@@ -32,15 +32,23 @@ pub struct FillData<T> {
 /// A point where two watersheds meet
 ///
 /// This does not say anything about it being a saddle point, only that it is on
-/// a ridge. (a saddle point is where the ridge is horizontal).
+/// a ridge. (a saddle point is where the ridge is horizontal). A ridge is
+/// always approached from one side, and a ridgepoint therefore has a degree of
+/// subjectivity.
 #[derive(Debug, PartialEq)]
 #[non_exhaustive]
 pub struct RidgePoint<T> {
+    /// The label of the approaching side
     pub my_label: TLabel,
+    /// The label of the other side
     pub n_label: TLabel,
+    /// Elevation of the approaching side
     pub my_elev: T,
+    /// Elevation of the other side
     pub n_elev: T,
+    /// Approacher's cell index
     pub my_cell: usize,
+    /// Other's cell index
     pub n_cell: usize,
 }
 
@@ -89,7 +97,7 @@ impl<T> FillData<T> {
 /// let mut labels = [NOT_FILLED;9];
 /// let mut fill_state = ZhouFillState::new(0);
 /// fill_state.add_edges(&meta, &dem);
-/// while fill_state.step(&meta, &mut dem, &mut labels, |a,b| {}) {}
+/// while fill_state.step(&meta, &mut dem, &mut labels, |_| {}) {}
 ///
 /// assert_eq!(dem, [
 ///  2.0,1.0,2.0,
@@ -104,6 +112,7 @@ pub struct ZhouFillState<T: Float> {
     slope_queue: VecDeque<usize>,
     /// depression cells
     depression_queue: VecDeque<usize>,
+    /// The current watershed's label
     current_label: TLabel,
 }
 
@@ -148,6 +157,8 @@ impl<T: Float + NextUp + TotalOrder> ZhouFillState<T> {
     pub fn current_label(&self) -> &TLabel {
         &self.current_label
     }
+
+    /// Seed the slope queue for growing (a) region(s) of interest
     pub fn seed_slope(&mut self, labels: &mut [TLabel], idxs: &[usize]) {
         for idx in idxs {
             self.slope_queue.push_back(*idx);
@@ -395,6 +406,11 @@ pub fn fill_zhou_watersheds<T: Float + NextUp + TotalOrder + Debug>(
     spill_graph
 }
 
+/// Function for what to do when watersheds meet
+///
+/// This is an almost-direct port of Barnes. It notes the ridgepoint in the
+/// spill graph if it is new or lower. That way, the lowest saddle point will
+/// become noted.
 pub fn watersheds_meet<T: Float + Debug>(
     mut my_label: TLabel,
     mut n_label: TLabel,
@@ -427,6 +443,9 @@ pub fn watersheds_meet<T: Float + Debug>(
         .or_insert(elev_over);
 }
 
+/// Raise catchments to their label's elevation
+///
+/// This is the second step in depression filling
 pub fn raise_catchments<T: PartialOrd + Clone>(
     dem: &mut [T],
     labels: &[TLabel],

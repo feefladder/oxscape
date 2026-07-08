@@ -258,7 +258,7 @@ impl Widget for &TiledSim {
         if let TiledSimStep::FillGraph {
             supergraph,
             fill_state,
-            graph_elevs,
+            graph_elevs: _,
             node_locations,
         } = &self.current_step
         {
@@ -292,7 +292,7 @@ impl Widget for &TiledSim {
                             let (my_x, my_y) = node_locations
                                 .get(&(my_label as u32))
                                 .unwrap_or(&(1.0, 1.0));
-                            let cf = colorous::PURPLES
+                            let _cf = colorous::PURPLES
                                 .eval_rational(my_label as usize, supergraph.spill_graph().len());
                             // let cb = colorous::MAGMA
                             //     .eval_continuous(graph_elevs[my_label as usize] / max_elev);

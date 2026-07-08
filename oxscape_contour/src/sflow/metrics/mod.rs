@@ -1,3 +1,6 @@
+//! Metrics such as D8, Rho8 etc.
+//!
+//! These are implemented in `oxscape_metrics` This module exposes structs that implement the metric
 use crate::sflow::FlowMetric;
 use oxscape_core::{GridMeta, Result, error::GridError};
 use oxscape_flowmets::sflow::d8::compute_receivers;

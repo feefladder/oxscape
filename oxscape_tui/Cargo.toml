@@ -14,6 +14,7 @@ oxscape_erode = {workspace = true}
 oxscape_tile = {workspace = true}
 rayon = {workspace = true}
 rand = {workspace = true}
+rand_chacha = {workspace = true}
 
 color-eyre = "0.6.5"
 colorous = "1.0.16"

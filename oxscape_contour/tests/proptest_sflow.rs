@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use oxscape_contour::{
     NOT_A_DONOR,
-    sflow::{Contours, FlowMetric},
+    sflow::{FlowMetric, FlowOrder},
 };
 use oxscape_core::{GridMeta, NO_FLOW, error::GridError};
 use proptest::{array::uniform16, prelude::*};
@@ -31,9 +31,9 @@ fn test_order_invariant_sflow(arr in uniform16(0..9u8)) {
     let meta = GridMeta::new(4, 4);
     let mut metric = DBroken(arr.to_vec());
     let mut set = HashSet::new();
-    let Ok(order) = Contours::from_dem_metric(meta.clone(), &arr.map(|v| v as f64), &mut metric) else {return Ok(());};
+    let Ok(order) = FlowOrder::from_dem_metric(meta.clone(), &arr.map(|v| v as f64), &mut metric) else {return Ok(());};
     for level in order
-        .levels()
+        .contours()
         .windows(2)
         .map(|w| &order.stack()[w[0]..w[1]])
     {

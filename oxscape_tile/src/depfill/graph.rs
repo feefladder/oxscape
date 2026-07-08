@@ -32,10 +32,12 @@ pub struct SuperGraph<T> {
 }
 
 impl<T> SuperGraph<T> {
+    /// Get immutable access to the underlying spill graph for visualization/debugging
     pub fn spill_graph(&self) -> &SpillGraph<T> {
         &self.spill_graph
     }
 
+    ///
     pub fn offsets(&self) -> &HashMap<TileCoord, (TLabel, usize)> {
         &self.offsets
     }
@@ -79,9 +81,11 @@ impl<T: Copy + Float + Debug> SuperGraph<T> {
         }
     }
 
+    /// Connect edges of the sub-graphs where they meet
+    ///
+    /// If there is no neighbour on a side, this will connect the edge to
+    /// special watershed 0: the grid edge.
     pub fn connect_edges(mut self, fill_grid: &impl FillGrid<T>) -> Self {
-        let idx_offsets = &mut self.offsets;
-        let spill_graph = &mut self.spill_graph;
         // check this tile's edges and connect them accordingly
         for fd in fill_grid.iter() {
             let my_coord = &fd.tile_info.tile_coord;
@@ -96,47 +100,52 @@ impl<T: Copy + Float + Debug> SuperGraph<T> {
                     let (n_labels, n_elevs) =
                         fill_grid.edge(&n_coord, GridMeta::rev(dir as usize).try_into().unwrap());
                     for edge_idx in 0..my_labels.len() {
+                        // We visit diagonal and opposite neighbours
+                        // 0 1 2
+                        //  \|/
+                        // 0 1 2
                         for n_offset in -1..=1 {
+                            //  0 1 2 ignore the \
+                            // \|/    on this line
+                            //  0 1 2 because -1 isn't usize
                             let Ok(n_edge_idx) = usize::try_from(edge_idx as isize + n_offset)
                             else {
                                 continue;
                             };
+                            // 0 1 2  ignore the /
+                            //    \|/ on this line
+                            // 0 1 2  because it exceeds the edge
                             if n_edge_idx >= n_labels.len() {
                                 continue;
                             }
-                            let my_label = my_labels[edge_idx] + idx_offsets[my_coord].0;
-                            let n_label = n_labels[n_edge_idx]
-                                + idx_offsets
-                                    .get(&n_coord)
-                                    .expect(&format!(
-                                        "no offset for {n_coord:?}, offsets: {idx_offsets:?}"
-                                    ))
-                                    .0;
+                            let my_label = my_labels[edge_idx] + self.offsets[my_coord].0;
+                            let n_label = n_labels[n_edge_idx] + self.offsets[&n_coord].0;
+
                             if my_label == n_label {
-                                panic!("found a duplicate somehow");
+                                panic!("found a duplicate {my_label} somehow");
                                 // continue;
                             }
                             let spill_elev = my_elevs[edge_idx].max(n_elevs[n_edge_idx]);
-                            if !spill_graph[my_label as usize].contains_key(&n_label) {
-                                spill_graph[my_label as usize].insert(n_label, spill_elev);
-                                spill_graph[n_label as usize].insert(my_label, spill_elev);
-                            } else if spill_graph[my_label as usize][&n_label] > spill_elev {
-                                spill_graph[my_label as usize].insert(n_label, spill_elev);
-                                spill_graph[n_label as usize].insert(my_label, spill_elev);
+                            if !self.spill_graph[my_label as usize].contains_key(&n_label) {
+                                self.spill_graph[my_label as usize].insert(n_label, spill_elev);
+                                self.spill_graph[n_label as usize].insert(my_label, spill_elev);
+                            } else if self.spill_graph[my_label as usize][&n_label] > spill_elev {
+                                self.spill_graph[my_label as usize].insert(n_label, spill_elev);
+                                self.spill_graph[n_label as usize].insert(my_label, spill_elev);
                             }
                         }
                     }
                 } else {
                     // otherwise, connect edges to special watershed 0 which represents the edge of the grid
                     for edge_idx in 0..my_labels.len() {
-                        let my_label = my_labels[edge_idx] + idx_offsets[my_coord].0;
+                        let my_label = my_labels[edge_idx] + self.offsets[my_coord].0;
                         let spill_elev = my_elevs[edge_idx];
-                        if !spill_graph[my_label as usize].contains_key(&0) {
-                            spill_graph[my_label as usize].insert(0, spill_elev);
-                            spill_graph[0].insert(my_label, spill_elev);
-                        } else if spill_graph[my_label as usize][&0] > spill_elev {
-                            spill_graph[my_label as usize].insert(0, spill_elev);
-                            spill_graph[0].insert(my_label, spill_elev);
+                        if !self.spill_graph[my_label as usize].contains_key(&0) {
+                            self.spill_graph[my_label as usize].insert(0, spill_elev);
+                            self.spill_graph[0].insert(my_label, spill_elev);
+                        } else if self.spill_graph[my_label as usize][&0] > spill_elev {
+                            self.spill_graph[my_label as usize].insert(0, spill_elev);
+                            self.spill_graph[0].insert(my_label, spill_elev);
                         }
                     }
                 }

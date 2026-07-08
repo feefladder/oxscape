@@ -8,6 +8,26 @@ use crate::depfill::GraphCell;
 use crate::depfill::graph::SuperGraph;
 use crate::depfill::grid::{FillGrid, RaiseGrid};
 
+/// Fill state of a grah filling process
+///
+/// Mostly useful for introspection and debuggin. Generally, this is not used
+/// directly, but rather [`fill_graph`]
+///
+/// ```
+/// # use std::collections::HashMap;
+/// use oxscape_tile::depfill::GraphFillState;
+/// // easiest 3-node one graph that has a depression
+/// let spill_graph = vec![
+///     HashMap::from([(1, 1.0)]),
+///     HashMap::from([(2, 0.5)]),
+///     HashMap::new(),
+/// ];
+/// let mut graph_elevs = vec![f64::MIN; 3];
+/// let mut state = GraphFillState::new(spill_graph.len());
+/// state.seed(0, f64::MIN);
+/// while state.step(&spill_graph, &mut graph_elevs) {}
+/// assert_eq!(&graph_elevs, &[f64::MIN, 1.0, 1.0]);
+/// ```
 #[derive(Debug, Clone)]
 pub struct GraphFillState<T> {
     processed: Vec<bool>,
@@ -15,6 +35,7 @@ pub struct GraphFillState<T> {
 }
 
 impl<T: Float + TotalOrder> GraphFillState<T> {
+    ///
     pub fn new(size: usize) -> Self {
         Self {
             processed: vec![false; size],
@@ -22,10 +43,14 @@ impl<T: Float + TotalOrder> GraphFillState<T> {
         }
     }
 
+    /// Get immutable access to the priority queue for debugging/visualizing
     pub fn priority_queue(&self) -> &BinaryHeap<GraphCell<T>> {
         &self.priority_queue
     }
 
+    /// Seed the graph with the given label and spill elevation.
+    ///
+    /// To properly fill, a graph should be seeded with all draining nodes. Typically, these are edge nodes.
     pub fn seed(&mut self, label: TLabel, spill_elev: T) {
         self.priority_queue.push(GraphCell::new(label, spill_elev));
     }
@@ -68,6 +93,10 @@ impl<T: Float + TotalOrder> GraphFillState<T> {
     }
 }
 
+/// Fill a [`supergraph`]: a graph that is made from multiple per-tile graphs
+/// and returns a [`FillGrid`]: A grid of raise elevations
+///
+///
 pub fn fill_supergraph<T: TotalOrder + Default + Float + Debug>(
     graph_grid: impl FillGrid<T>,
 ) -> RaiseGrid<T> {

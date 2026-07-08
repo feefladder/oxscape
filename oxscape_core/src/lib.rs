@@ -1,9 +1,8 @@
 use exn::Exn;
-use num_traits::PrimInt;
 use num_traits::float::Float;
 use std::f64::consts::SQRT_2;
 use std::fmt::{Debug, Display};
-use std::ops::{Add, Range, Rem};
+use std::ops::Range;
 
 use crate::Dir::*;
 use crate::error::GridError;
@@ -346,7 +345,7 @@ impl GridMeta {
 
     /// Starting positions of the edges if they are collected into a single array
     ///
-    /// This can always be used as let edge = edges[`skirt_range(dir)`]
+    /// This can always be used as `let edge = edges[skirt_range(dir)]`
     /// in
     /// ```
     /// # use oxscape_core::{GridMeta,Dir};

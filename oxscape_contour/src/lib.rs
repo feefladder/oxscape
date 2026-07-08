@@ -5,7 +5,7 @@
 //! separately kept.
 //!
 //! ```
-//! use oxscape_contour::mflow::Contours;
+//! use oxscape_contour::mflow::FlowOrder;
 //!
 //!
 //!
@@ -24,6 +24,10 @@ use std::{
 pub mod mflow;
 pub mod sflow;
 
+/// index value for non-donor cells
+///
+/// This is intentionally larger than [`isize::MAX`], to cause crashes when it
+/// is accidentally used for array indexing.
 pub const NOT_A_DONOR: usize = usize::MAX;
 
 /// (*mut T) cannot be shared between threads.
@@ -37,6 +41,9 @@ struct Bazooka<T: Send + Sync>(*mut T);
 /// SAFETY: We will only ever read from and write to disjoint indices within a parallel region
 unsafe impl<T: Send + Sync> Sync for Bazooka<T> {}
 
+/// Error type for [`FlowOrder`]
+///
+/// [`FlowOrder`] generates "contours" from a metric
 #[derive(Debug, PartialEq, Eq)]
 pub struct ContourError {
     status: ErrorStatus,
@@ -44,12 +51,21 @@ pub struct ContourError {
     message: String,
 }
 
+/// The type of error
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ContourErrorKind {
+    /// The metric returned an error,
     MetricFailed,
+    /// The metric succeeded, but gave invalid results, so we cannot continue safely
+    ///
+    /// This can generally happen for two reasons:
+    /// 1. The metric pointed flow outside the grid (sflow)
+    /// 2. There were more receivers than noted in the nrec array (mflow)
     InvalidMetric,
+    /// Input arrays did not match our [`GridMeta.size()`]
     InvalidArraySize,
+    /// Something else
     Other,
 }
 

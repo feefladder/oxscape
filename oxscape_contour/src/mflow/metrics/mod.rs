@@ -1,3 +1,7 @@
+//! Metrics such as Dinf, Holmgren etc.
+//!
+//! These are implemented in `oxscape_metrics`, this module exposes structs that implement the metric.
+
 use std::{fmt::Debug, marker::PhantomData};
 
 use crate::mflow::FlowMetric;
@@ -55,6 +59,7 @@ unsafe impl<TFLow: Flow + Debug, TElev: Float + Sync> FlowMetric<TElev> for Dinf
     }
 }
 
+/// Convenience function to create a Dinf of a specific type
 pub fn dinf<TFlow: Flow + Debug>() -> Dinf<TFlow> {
     Dinf(PhantomData)
 }
@@ -63,7 +68,7 @@ pub fn dinf<TFlow: Flow + Debug>() -> Dinf<TFlow> {
 mod test {
     use crate::NOT_A_DONOR;
     use crate::mflow::test::consts;
-    use crate::mflow::{Contours, compute_donors, generate_order};
+    use crate::mflow::{FlowOrder, compute_donors, generate_order};
 
     use super::*;
 
@@ -91,7 +96,7 @@ mod test {
         ]);
         let mut stack = Vec::with_capacity(9);
         let mut levels = Vec::with_capacity(3);
-        generate_order(&mut nrec, &donor, &mut stack, &mut levels);
+        generate_order(&mut nrec, &donor, &mut stack, &mut levels).unwrap();
         assert_eq!(&stack, &[
             0,1,2,3,5,6,7,8,4
         ]);
@@ -120,7 +125,7 @@ mod test {
 
         let mut stack = vec![0;meta.size()];
         let mut levels = Vec::with_capacity(4);
-        generate_order(&mut nrec, &donor, &mut stack, &mut levels);
+        generate_order(&mut nrec, &donor, &mut stack, &mut levels).unwrap();
         assert_eq!(stack, &[
         //  0  1  2  3  4  5  6  7   8   9   10  11
             0, 1, 2, 3, 4, 7, 8, 11, 12, 13, 14, 15,
@@ -140,7 +145,7 @@ mod test {
             vec![9,10],
         ]);
         let mut acc = vec![1.0f64;meta.size()];
-        let order: Contours<f64> = Contours::from_dem_metric(meta, &consts::H_4, &mut Dinf(PhantomData)).unwrap();
+        let order: FlowOrder<f64> = FlowOrder::from_dem_metric(meta, &consts::H_4, &mut Dinf(PhantomData)).unwrap();
         order.for_contours_top_down(&mut acc, |c| {
             *c.cell() += c.donors().iter().map(|(a,b)| a*b).sum::<f64>()
         });

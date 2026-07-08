@@ -3,13 +3,13 @@ use std::ops::AddAssign;
 use crate::{ErodeError, Params, add_uplift};
 use exn::ResultExt;
 use num_traits::Float;
-use oxscape_contour::sflow::Contours;
+use oxscape_contour::sflow::FlowOrder;
 use oxscape_contour::sflow::metrics::D8;
 use oxscape_core::{DR, GridMeta};
 use oxscape_core::{Flow, Result};
 
 pub fn accum<T: Float + Send + Sync + AddAssign>(
-    order: &Contours,
+    order: &FlowOrder,
     params: &Params<T>,
     accum: &mut [T],
 ) {
@@ -22,7 +22,7 @@ pub fn accum<T: Float + Send + Sync + AddAssign>(
 }
 
 pub fn erode<T: Float + Send + Sync>(
-    order: &Contours,
+    order: &FlowOrder,
     params: &Params<T>,
     accum: &[T],
     dem: &mut [T],
@@ -54,7 +54,7 @@ pub fn run<T: Flow + Send + Sync + Float + AddAssign>(
     params: &Params<T>,
     dem: &mut [T],
 ) -> Result<(), ErodeError> {
-    let mut order = Contours::empty(meta.clone());
+    let mut order = FlowOrder::empty(meta.clone());
     let mut acc = vec![T::zero(); order.meta().size()];
     for step in 0..nstep {
         order
@@ -70,7 +70,7 @@ pub fn run<T: Flow + Send + Sync + Float + AddAssign>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use oxscape_contour::sflow::Contours;
+    use oxscape_contour::sflow::FlowOrder;
 
     const META: GridMeta = GridMeta::new(6, 6);
     #[rustfmt::skip]
@@ -124,7 +124,7 @@ mod test {
     fn test_compute_acc() {
         let meta = GridMeta::new(8, 8);
         let mut acc = vec![0.0; meta.size()];
-        let order = Contours::from_dem_metric(meta, &consts::H_LIFT, &mut D8).unwrap();
+        let order = FlowOrder::from_dem_metric(meta, &consts::H_LIFT, &mut D8).unwrap();
         accum(&order, &Params::default(), &mut acc);
         assert_eq!(acc, consts::ACCUM);
     }
@@ -133,7 +133,7 @@ mod test {
     fn test_erode() {
         let mut h = consts::H_LIFT.to_vec();
         let order =
-            Contours::from_dem_metric(GridMeta::new(8, 8), &consts::H_LIFT, &mut D8).unwrap();
+            FlowOrder::from_dem_metric(GridMeta::new(8, 8), &consts::H_LIFT, &mut D8).unwrap();
         erode(&order, &Params::default(), &consts::ACCUM, &mut h);
         assert_eq!(h, consts::H_ONE);
     }

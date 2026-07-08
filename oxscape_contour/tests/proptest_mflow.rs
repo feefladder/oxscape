@@ -3,7 +3,7 @@ use std::{collections::HashSet, fmt::Debug};
 
 use oxscape_contour::{
     NOT_A_DONOR,
-    mflow::{Contours, FlowMetric},
+    mflow::{FlowMetric, FlowOrder},
 };
 use oxscape_core::{Flow, GridMeta, error::GridError};
 
@@ -42,12 +42,12 @@ fn test_order_invariant_mflow() {
         nrec: arr.to_vec(),
     };
     let mut set = HashSet::new();
-    let Ok(order) = Contours::from_dem_metric(meta.clone(), &arr.map(|v| v as f64), &mut metric)
+    let Ok(order) = FlowOrder::from_dem_metric(meta.clone(), &arr.map(|v| v as f64), &mut metric)
     else {
         return; // Ok(());
     };
     for level in order
-        .levels()
+        .contours()
         .windows(2)
         .map(|w| &order.stack()[w[0]..w[1]])
     {

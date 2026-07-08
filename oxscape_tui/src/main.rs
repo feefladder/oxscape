@@ -28,6 +28,7 @@ enum Mode {
     },
     Tiled {
         tiled_sim: TiledSim,
+        #[allow(dead_code)]
         flow_accumulation: Vec<f64>,
     },
 }
@@ -150,7 +151,9 @@ impl Widget for &Mode {
             Mode::Full(sim) => sim.render(area, buf),
             Mode::Fill {
                 sim,
+                #[allow(unused_variables)]
                 unseeded_sim,
+                #[allow(unused_variables)]
                 flow_accumulation,
             } => {
                 sim.render(area, buf);

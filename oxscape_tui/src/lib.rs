@@ -1,4 +1,8 @@
+//! Debugging tui application
+//!
+//! mainly for internal debugging/developing and demos
 #![warn(clippy::pedantic)]
+#![allow(missing_docs)]
 use color_eyre::Result;
 use oxscape_core::GridMeta;
 // use oxscape_tile::fill_deps::fill::{NOT_FILLED, fill_zhou2016};
@@ -29,7 +33,7 @@ pub mod tile_grid;
 pub const DIRS: [char; 9] = ['🡸', '🡼', '🡹', '🡽', '🡺', '🡾', '🡻', '🡿', '❀'];
 
 pub fn random_dem(dem: &mut [f64], meta: &GridMeta, seed: u64) -> Result<()> {
-    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+    let mut rng = rand_chacha::ChaCha20Rng::seed_from_u64(seed);
     dem.fill(0.0);
     dem.chunks_exact_mut(meta.width())
         .take(meta.height() - 1)

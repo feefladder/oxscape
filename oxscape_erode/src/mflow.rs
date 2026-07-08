@@ -2,11 +2,11 @@ use std::ops::{AddAssign, SubAssign};
 
 use crate::Params;
 use num_traits::Float;
-use oxscape_contour::mflow::Contours;
+use oxscape_contour::mflow::FlowOrder;
 use oxscape_core::{DR, Flow};
 
 pub fn accum<TFlow: Flow + AddAssign>(
-    order: &Contours<TFlow>,
+    order: &FlowOrder<TFlow>,
     cell_area: TFlow,
     accum: &mut [TFlow],
 ) {
@@ -23,7 +23,7 @@ pub fn accum<TFlow: Flow + AddAssign>(
 }
 
 pub fn erode<T: Flow + Float + AddAssign + SubAssign + Send + Sync>(
-    order: &Contours<T>,
+    order: &FlowOrder<T>,
     params: &Params<T>,
     accum: &[T],
     dem: &mut [T],

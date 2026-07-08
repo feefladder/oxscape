@@ -1,6 +1,6 @@
 use color_eyre::{Report, Result};
 use colorous::Gradient;
-use oxscape_contour::mflow::Contours;
+use oxscape_contour::mflow::FlowOrder;
 use oxscape_contour::mflow::metrics::dinf;
 use oxscape_core::{Flow, GridMeta};
 use oxscape_erode::mflow::{accum, erode};
@@ -17,7 +17,7 @@ pub struct DefaultSim {
     gradient: Gradient,
     dem: Vec<f64>,
     accum: Vec<f64>,
-    order: Contours<f64>,
+    order: FlowOrder<f64>,
     params: Params<f64>,
     seed: u64,
 }
@@ -34,7 +34,7 @@ impl DefaultSim {
     }
 
     #[must_use]
-    pub fn order(&self) -> &Contours<f64> {
+    pub fn order(&self) -> &FlowOrder<f64> {
         &self.order
     }
 
@@ -49,7 +49,7 @@ impl DefaultSim {
         params: Params<f64>,
         gradient: Gradient,
     ) -> Result<Self> {
-        let order = Contours::from_dem_metric(meta, &dem, &mut dinf::<f64>())
+        let order = FlowOrder::from_dem_metric(meta, &dem, &mut dinf::<f64>())
             .map_err(|e| Report::msg(e.to_string()))?;
         let mut acc = vec![0.0; order.meta().size()];
         accum(&order, params.cell_area, &mut acc);
@@ -73,7 +73,7 @@ impl DefaultSim {
         let mut dem = vec![0.0; meta.size()];
         random_dem(&mut dem, &meta, 42).map_err(|e| Report::msg(e.to_string()))?;
         // fill_zhou2016(&meta, &mut dem, &mut vec![NOT_FILLED; meta.size()]);
-        let order = Contours::from_dem_metric(meta, &dem, &mut dinf::<f64>())
+        let order = FlowOrder::from_dem_metric(meta, &dem, &mut dinf::<f64>())
             .map_err(|e| Report::msg(e.to_string()))?;
 
         Ok(Self {
@@ -91,7 +91,7 @@ impl DefaultSim {
         self.dem.resize(meta.size(), 0.0);
         random_dem(&mut self.dem, &meta, self.seed).map_err(|e| Report::msg(e.to_string()))?;
         self.accum.resize(meta.size(), 0.0);
-        self.order = Contours::from_dem_metric(meta, &self.dem, &mut dinf::<f64>())
+        self.order = FlowOrder::from_dem_metric(meta, &self.dem, &mut dinf::<f64>())
             .map_err(|e| Report::msg(e.to_string()))?;
         Ok(())
     }
@@ -132,7 +132,7 @@ impl Widget for &DefaultSim {
             .max_by(|a, b| a.total_cmp(b))
             .unwrap_or(&1.0);
         self.order
-            .levels()
+            .contours()
             .windows(2)
             .map(|w| &self.order.stack()[w[0]..w[1]])
             .enumerate()
@@ -143,7 +143,7 @@ impl Widget for &DefaultSim {
                     let ty = u16::try_from(y).unwrap() + area.top();
                     let color = self
                         .gradient
-                        .eval_rational(self.order.n_levels() - i, self.order.n_levels());
+                        .eval_rational(self.order.n_contours() - i, self.order.n_contours());
                     buf[(tx, ty)].set_fg(Color::Rgb(color.r, color.g, color.b));
                     buf[(tx + 1, ty)].set_fg(Color::Rgb(color.r, color.g, color.b));
                 }

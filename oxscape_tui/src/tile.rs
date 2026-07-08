@@ -114,7 +114,7 @@ impl Tile {
 impl Widget for &Tile {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // give bg color based on height
-        for (idx, (l, z)) in self.labels.iter().zip(&self.dem).enumerate() {
+        for (idx, (_l, z)) in self.labels.iter().zip(&self.dem).enumerate() {
             let (dem_x, dem_y) = self.meta.i_to_xy(idx);
             let x = u16::try_from(dem_x * 2).unwrap() + area.left();
             let y = u16::try_from(dem_y).unwrap() + area.top();

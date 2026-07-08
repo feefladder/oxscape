@@ -37,6 +37,15 @@
 //! There is a small problem wrt. large depressions that flow parallel to a tile
 //! edge, where directions would suddendly become perpendicular in the
 //! neighbouring tile. Not sure how to solve that though...
+//!
+//! And there was a thing with skirted tiles or passing a double-edge to the
+//! producer, since otherwise flow directions cannot be determined And afaik
+//! edge flow is handled by the producer and it's just [`NO_FLOW`] at the
+//! consumer's side. In other words: Edges flow directly off the grid and that's
+//! fixed later.
+//!
+//! I think the double edge is more elegant compared to skirted tiles, since it
+//! preserves the edges-are-handled-by-producer dynamic.
 
 #[cfg(test)]
 mod test {

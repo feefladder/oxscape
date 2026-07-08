@@ -7,7 +7,11 @@ use num_traits::float::Float;
 use oxscape_core::{GridMeta, NO_FLOW, Result, error::GridError};
 use rayon::prelude::*;
 
+/// Generate terrain that just increases with index
+///
+/// Mainly for testing to have a uniformly defined terrain
 #[allow(clippy::cast_precision_loss)]
+#[allow(dead_code)]
 pub fn generate_boring_terrain(dem: &mut [f64], start: f64, delta: f64) {
     dem.into_par_iter().enumerate().for_each(|(v, a)| {
         *a = start + v as f64 * delta;
@@ -234,12 +238,14 @@ impl<'a, T: Zero + Copy + Send + Sync> ContourAccessor<'a, T> {
         unsafe { addr.as_mut().unwrap() }
     }
 
+    /// Get the index of the current cell
     #[inline]
     #[must_use]
     pub fn idx(&self) -> usize {
         self.idx
     }
 
+    /// Get the direction this cell flows to
     #[inline]
     #[must_use]
     pub fn recv_dir(&self) -> u8 {
@@ -265,6 +271,13 @@ impl<'a, T: Zero + Copy + Send + Sync> ContourAccessor<'a, T> {
         unsafe { addr.read() }
     }
 
+    /// Get immutable access to the donors of this cell
+    ///
+    /// If a direction is not a donor, the corresponding value will be 0.
+    ///
+    /// This may become an issue if there is an actual 0-valued donor. Please
+    /// open an issue if you run into this.
+    //In that case, it could be solved by appending a boolean is_donor, similar to how it works in mflow
     #[inline]
     #[must_use]
     pub fn donors(&self) -> [T; 8] {
@@ -289,60 +302,58 @@ impl<'a, T: Zero + Copy + Send + Sync> ContourAccessor<'a, T> {
     }
 }
 
+/// Flow order for graph traversal
+///
+/// Internally uses "contours": the hydrological meaning is that on a contour, no water flows sideways, only
+/// up or down. Therefore it is safe to process an entire contour in parallel.
+/// This naming diverges from the topologial "levels" and overloads GIS "contours", but is easier to explain
+/// imo.
 #[derive(Debug)]
-pub struct Contours {
+pub struct FlowOrder {
     meta: GridMeta,
     donors: Vec<[usize; 8]>,
     receivers: Vec<u8>,
     stack: Vec<usize>,
-    levels: Vec<usize>,
+    contours: Vec<usize>,
 }
 
-impl Contours {
-    #[must_use]
-    pub fn levels(&self) -> &[usize] {
-        &self.levels
-    }
-
-    #[must_use]
-    pub fn stack(&self) -> &[usize] {
-        &self.stack
-    }
-
-    #[must_use]
-    pub fn n_levels(&self) -> usize {
-        self.levels.len() - 1
-    }
-
+impl FlowOrder {
+    /// The [`GridMeta`] of this grid
+    ///
+    /// any arrays passed in to [`Self::for_contours_bottom_up`] or
+    /// [`Self::for_contours_top_down`] should match this.
     #[must_use]
     pub fn meta(&self) -> &GridMeta {
         &self.meta
     }
 
-    #[must_use]
-    pub fn donors(&self) -> &[[usize; 8]] {
-        &self.donors
-    }
-
-    #[must_use]
-    pub fn receivers(&self) -> &[u8] {
-        &self.receivers
-    }
-
-    /// Create an uninitialized order
+    /// Create an empty [`FlowOrder`]
+    ///
+    /// This will initialize properly sized arrays for the grid
     #[must_use]
     pub fn empty(meta: GridMeta) -> Self {
+        // SAFETY: we can create bogus flows, donors and nrec
+        // as long as stack and levels are empty: no memory will be accessed
         let receivers = vec![0; meta.size()];
         let donors = vec![[0; 8]; meta.size()];
         // SAFETY: stack and levels need to be empty so that no traversal is done
+        // If there are no cycles, the stack contains all cells
         let stack = Vec::with_capacity(meta.size());
-        let levels = Vec::with_capacity(2 * meta.width() + 2 * meta.height());
+        // From Barnes' code: https://github.com/r-barnes/Barnes2019-Landscape/blob/2274e4639ab2299701d306fe42f24380a7845795/fastscape_RB.cpp#L358
+        //
+        // It's difficult to know how much memory should be allocated for levels. For
+        // a square DEM with isotropic dispersion this is approximately sqrt(E/2). A
+        // diagonally tilted surface with isotropic dispersion may have sqrt(E)
+        // levels. A tortorously sinuous river may have up to E*E levels. We
+        // compromise and choose a number of levels equal to the perimiter because
+        // why not?
+        let contours = Vec::with_capacity(2 * meta.width() + 2 * meta.height());
         Self {
             meta,
             donors,
             receivers,
             stack,
-            levels,
+            contours,
         }
     }
 
@@ -388,7 +399,7 @@ impl Contours {
             &self.receivers,
             &self.donors,
             &mut self.stack,
-            &mut self.levels,
+            &mut self.contours,
         );
         Ok(())
     }
@@ -412,7 +423,7 @@ impl Contours {
         // out-of-bounds data.
         assert!(data.len() == self.meta.size());
         let b = Bazooka(data.as_mut_ptr());
-        for level in self.levels.windows(2).map(|w| &self.stack[w[0]..w[1]]) {
+        for level in self.contours.windows(2).map(|w| &self.stack[w[0]..w[1]]) {
             level.into_par_iter().for_each(|v| {
                 if self.receivers[*v] == NO_FLOW {
                     return;
@@ -450,7 +461,7 @@ impl Contours {
     ) {
         let b = Bazooka(data.as_mut_ptr());
         for level in self
-            .levels
+            .contours
             .windows(2)
             .rev()
             .map(|w| &self.stack[w[0]..w[1]])
@@ -471,6 +482,40 @@ impl Contours {
             });
         }
     }
+
+    /// Get immutable access to the "contours" for debugging purposes
+    #[must_use]
+    pub fn contours(&self) -> &[usize] {
+        &self.contours
+    }
+
+    /// The number of "contours"
+    ///
+    /// This is the number of parallel chunks of the graph.
+    #[must_use]
+    pub fn n_contours(&self) -> usize {
+        self.contours.len() - 1
+    }
+
+    /// Get immutable access to the stack for debugging purposes
+    #[must_use]
+    pub fn stack(&self) -> &[usize] {
+        &self.stack
+    }
+
+    /// Get immutable access to the donors array for debugging purposes
+    ///
+    /// This is a direction->index map for each cell
+    #[must_use]
+    pub fn donors(&self) -> &[[usize; 8]] {
+        &self.donors
+    }
+
+    /// Each cell's receivers for visualizing flow directions
+    #[must_use]
+    pub fn receivers(&self) -> &[u8] {
+        &self.receivers
+    }
 }
 
 #[cfg(test)]
@@ -490,6 +535,7 @@ mod test {
     mod consts {
         use crate::NOT_A_DONOR;
 
+    #[allow(unused)]
     pub const H_INIT: [f64;36] = [
         //     0    1    2    3    4    5
         /*0*/ 0.5, 1.0, 1.5, 2.0, 2.5, 3.0,
@@ -742,7 +788,7 @@ mod test {
 
     #[test]
     fn test_order_empty_run() {
-        let order = Contours::empty(GridMeta::new(2, 2));
+        let order = FlowOrder::empty(GridMeta::new(2, 2));
         order.for_contours_bottom_up(&mut [0.0; 4], |_| panic!("I shouldn't run!"));
         order.for_contours_top_down(&mut [0.0; 4], |_| panic!("I shouldn't run!"));
     }

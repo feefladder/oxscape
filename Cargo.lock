@@ -1111,6 +1111,7 @@ dependencies = [
  "oxscape_erode",
  "oxscape_tile",
  "rand 0.10.2",
+ "rand_chacha 0.10.0",
  "ratatui",
  "rayon",
 ]
