@@ -47,6 +47,25 @@
 //! I think the double edge is more elegant compared to skirted tiles, since it
 //! preserves the edges-are-handled-by-producer dynamic.
 
+// I guess the first thing to do is sort of re-create the FillData-type struct,
+// but then with all required information for the current "thing", Then once
+// that is there, it's becoming a runtime problem to merge depfill step 2 and flatresolve step 1
+// but ?maybe?
+//
+// aah I still don't know where to start if we're not filling depressions, they give so much useful information!
+//
+// The required data for determining flow directions on any flat is basically it's "level" in a region growing algorithm
+//
+// so... Yeah I think that's actually a useful piece of data to keep around.
+// ah interesting stuff, because tiles completely mess up the edges-drain assumption
+//
+
+/// For each tile, the downstream cells of a flat on the border
+pub type FlatGrid<T> = HashMap<TileInfo, FlatData>;
+
+/// in-tile indices of seed cells
+pub type FlatData = Vec<usize>;
+
 #[cfg(test)]
 mod test {
     #[test]

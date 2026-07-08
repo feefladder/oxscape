@@ -18,7 +18,12 @@ pub type TileGrid = HashMap<TileCoord, TileInfo>;
 ///
 /// These will contain the spill elevation of each watershed. If it wasn't a
 /// global depression, that will be the same as the outputted elevation.
-pub type RaiseGrid<T> = HashMap<TileInfo, Vec<T>>;
+pub type RaiseGrid<T> = HashMap<TileInfo, RaiseData<T>>;
+
+/// Data needed for raising catchments.
+///
+/// This is per-label-indexed elevations.
+pub type RaiseData<T> = Vec<T>;
 
 /// All necessary methods to solve a global filling problem
 ///
