@@ -27,8 +27,8 @@ pub type SpillGraph<T> = Vec<HashMap<TLabel, T>>;
 /// graph of spill elevations that also keeps track of which ranges map to which tiles
 #[derive(Debug, Clone, PartialEq)]
 pub struct SuperGraph<T> {
-    pub(super) spill_graph: SpillGraph<T>,
-    pub(super) offsets: HashMap<TileCoord, (TLabel, usize)>,
+    pub(crate) spill_graph: SpillGraph<T>,
+    pub(crate) offsets: HashMap<TileCoord, (TLabel, usize)>,
 }
 
 impl<T> SuperGraph<T> {

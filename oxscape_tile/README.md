@@ -1,5 +1,9 @@
 # Tiled interface for models
 
+owh shoot, just realized why tiles also had their own special watershed 0
+That is of course because tiles could be partially ocean and then they are also draining _internally_ to the edge of the grid.
+
+Guess that's the next chapter...
 
 ## ramble
 

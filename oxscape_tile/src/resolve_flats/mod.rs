@@ -118,17 +118,22 @@ pub fn seed_superflat<T: TotalOrder + Default + Float + Debug>(
 
         let mut seed_indices = Vec::new();
         for dir in Dir::iter() {
+            println!("checking {my_coord:?} in direction {dir:?}");
             let (my_labels, my_elevs) = graph_grid.edge(my_coord, dir);
             let my_offset = offsets[my_coord].0;
 
             // if we have a neighbour in this direction, check the above
             if let Some(n_coord) = graph_grid.neighbour(my_coord, dir) {
+                println!("neighbour {n_coord:?} in dir {dir:?}");
                 let (n_labels, n_elevs) = graph_grid.edge(&n_coord, dir.rev());
                 let n_offset = offsets[&n_coord].0;
 
                 for edge_idx in 0..my_labels.len() {
+                    let cell_i = fd.tile_info.meta().edge_idx_to_i(dir, edge_idx);
+                    println!("processing cell {cell_i}");
                     // - elevation[i] <= graph_elevs[range][labels[i]] (it is being filled)
                     if my_elevs[edge_idx] > my_raise_elevs[my_labels[edge_idx] as usize] {
+                        println!("cell {cell_i} is not raised");
                         // this cell won't be raised, so it doesn't need to be filled
                         continue;
                     }
@@ -161,8 +166,14 @@ pub fn seed_superflat<T: TotalOrder + Default + Float + Debug>(
                         let my_label = my_labels[edge_idx] + my_offset;
                         let n_label = n_labels[n_edge_idx] + n_offset;
 
-                        // the neighbour cell needs to be lower
-                        if n_elevs[n_edge_idx] > my_elevs[edge_idx] {
+                        // the neighbour cell needs to be lower than our raise elevation
+                        //
+                        // WHY??
+                        if n_elevs[n_edge_idx] > my_raise_elevs[my_labels[edge_idx] as usize] {
+                            println!("skipping {n_edge_idx} for cell {cell_i}");
+                            // if the neighbour cell is higher, it could be that
+                            // we are filling to their height, so in that case
+                            // we also need to check if they are higher than our raise elevation
                             continue;
                         }
                         //   - supergraph.spill_graph[my_idx][n] exists, and:
@@ -176,16 +187,30 @@ pub fn seed_superflat<T: TotalOrder + Default + Float + Debug>(
                             // want to use (x,y)-based indexing at this level?
                             // Or not... and add some magic function on
                             // `GridMeta`
-
-                            seed_indices.push(fd.tile_info.meta().edge_idx_to_i(dir, edge_idx))
+                            println!("cell {cell_i} drains",);
+                            seed_indices.push(cell_i);
+                        } else {
+                            println!(
+                                "cell {cell_i} was not draining, because {:?} doesn't contain {n_label} or {} !> {} ",
+                                supergraph.spill_graph()[my_label as usize],
+                                order[my_label as usize],
+                                order[n_label as usize]
+                            );
                         }
                     }
                 }
             } else {
                 // depressions are draining
                 // kind of always adding everything as seed cells?
+                // actually no, we don't want everything as seed cells, only actually filled cells
+                // (there is this edge rule that stops catchments from fragmenting, so an edge will have the same label for many non-filled cells)
                 // I think that's fine because the growing algorithm only grows on flats
-                for edge_idx in 0..fd.tile_info.meta().skirt_range(dir).len() {
+                for edge_idx in 0..my_labels.len() {
+                    // - elevation[i] <= graph_elevs[range][labels[i]] (it is being filled)
+                    if my_elevs[edge_idx] > my_raise_elevs[my_labels[edge_idx] as usize] {
+                        // this cell won't be raised, so it doesn't need to be filled
+                        continue;
+                    }
                     seed_indices.push(fd.tile_info.meta().edge_idx_to_i(dir, edge_idx))
                 }
             }
@@ -198,130 +223,181 @@ pub fn seed_superflat<T: TotalOrder + Default + Float + Debug>(
 
 #[cfg(test)]
 mod test {
-    #[test]
-    fn test_edge() {
-        // so this here is a draining bottom edge. it flows into the catchment
-        // with a global spill elevation of `0.5` Therefore, the middle three cells should be marked as seed cells
-        let edge = vec![1.0, 0.5, 0.25, 0.125, 1.0];
+    use std::collections::{BTreeSet, HashMap, HashSet};
 
-        // for "clarity", labels are global here.
-        let labels = vec![0, 0, 0, 0, 0, 0];
-        // these are needed to show that they all drain to the same catchment
-        let bottom_neighbour_labels = vec![1, 1, 1, 1, 1];
-        // label 0 is later than label 1, so 1->0 (1 receives from 0; 0 drains into 1, flow accumulation is in reverse order);
-        let label_order = vec![1, 0];
+    use oxscape_core::GridMeta;
 
-        let label_elevs = vec![0.5];
-        let expected = vec![1, 2, 3];
-        // however, if spill elevation was 0.25
-        let label_elevs = vec![0.25];
-        let expected = vec![2, 3];
-    }
+    use super::*;
+    use crate::{
+        TileCoord, TileInfo,
+        depfill::{FillData, SuperGraph, VecFillGrid},
+    };
 
     #[test]
     #[rustfmt::skip]
-    fn test_bad() {
-        // example of a hostile dem:
-        // the two
-        let dem = [
-            [
-                1.0,0.5,1.0,1.0,
-                1.0,0.2,0.2,1.0,
-                1.0,0.2,0.2,1.0,
-                1.0,0.2,0.2,1.0,
-            ],
-            [
-                1.0,0.2,0.2,1.0,
-                1.0,0.2,0.2,1.0,
-                1.0,0.2,0.2,1.0,
-                1.0,1.0,1.0,1.0,
-            ]
-        ];
-        let raised = [
-            [
-                1.0,0.5,1.0,1.0,
-                1.0,0.5,0.5,1.0,
-                1.0,0.5,0.5,1.0,
-                1.0,0.5,0.5,1.0,
-            ],
-            [
-                1.0,0.5,0.5,1.0,
-                1.0,0.5,0.5,1.0,
-                1.0,0.5,0.5,1.0,
-                1.0,1.0,1.0,1.0,
-            ]
-        ];
-        // and now the top edge of tile 1 will be rather arbitrarily flowing to
-        // either the left or right.
-        //
-        // That's kind of fine because people ignore lake dynamics?
-        // but actually not fine...
-        //
-        // The answer is that both top cells have to be added to the queue
-        // that's doable
-    }
+    fn test_resolve_flats_single_edge() {
+        let meta = GridMeta::new(5, 3);
 
-    #[test]
-    #[rustfmt::skip]
-    fn test_ugly() {
-        // example of a hostile dem:
-        // the bottom edge of top tile has unequal levels.
-        let dem = [
-            [
-                1.0,1.0,1.0,1.0,1.0,
-                1.0,0.2,0.2,0.2,1.0,
-                0.5,0.2,0.2,0.2,1.0,
-                1.0,0.2,0.2,0.2,1.0,
-            ],
-            [
-                1.0,0.2,0.2,0.2,1.0,
-                1.0,0.2,0.2,0.2,1.0,
-                1.0,0.2,0.2,0.2,1.0,
-                1.0,1.0,1.0,1.0,1.0,
-            ]
+        // upper tile (yes it's a single row)
+        let ti00 = TileInfo::new((0, 0).into(), meta.clone());
+        let dem00 = vec![
+            1.0, 1.0, 1.0, 1.0, 1.0,
+            1.0, 0.0, 0.0, 0.0, 1.0,
+            1.0, 0.5,0.25,0.125,1.0,
         ];
-        let raised = [
-            [
-                1.0,1.0,1.0,1.0,1.0,
-                1.0,0.5,0.5,0.5,1.0,
-                0.5,0.5,0.5,0.5,1.0,
-                1.0,0.5,0.5,0.5,1.0,
-            ],
-            [
-                1.0,0.5,0.5,0.5,1.0,
-                1.0,0.5,0.5,0.5,1.0,
-                1.0,0.5,0.5,0.5,1.0,
-                1.0,1.0,1.0,1.0,1.0,
-            ]
+        let l00 = vec![0;15];
+
+        // top edge of the lower tile
+        let ti01 = TileInfo::new((0, 1).into(), meta.clone());
+        let dem01 = vec![
+            1.0, 0.5,0.25,0.125,1.0,
+            1.0, 0.0, 0.0, 0.0, 1.0,
+            1.0, 1.0, 1.0, 1.0, 0.5,
         ];
-        // and now the top edge of tile 1 will have seeds that should be on
-        // different levels. That's kinda bad, but maybe we can accept that?
-        //
+        let l01 = vec![0; 15];
+
+        let grid = VecFillGrid::new(
+            GridMeta::new(1, 2),
+            vec![
+                FillData {
+                    tile_info: ti00.clone(),
+                    spill_graph: Vec::new(),
+                    dem_edges: meta.edges(&dem00),
+                    label_edges: meta.edges(&l00),
+                },
+                FillData {
+                    tile_info: ti01.clone(),
+                    spill_graph: Vec::new(),
+                    dem_edges: meta.edges(&dem01),
+                    label_edges: meta.edges(&l01),
+                },
+            ],
+        );
+
+        let supergraph = SuperGraph {
+            spill_graph: vec![
+                HashMap::new(), // special watershed 0
+                HashMap::from([(2, 0.5)]), // 2 and 1 are connected
+                HashMap::from([(1, 0.5)]), // 1 and 2 are connected
+            ],
+            offsets: HashMap::from([
+                (TileCoord { x: 0, y: 0 }, (1, 1)),
+                (TileCoord { x: 0, y: 1 }, (2, 1)),
+            ]),
+        };
+
+        // top tile drains to bottom tile
+        // reverse of visit order
+        let order = vec![0, 2, 1];
+
+        // spill elevation 0.5
+        let graph_elevs = vec![f64::MIN, 0.5, 0.5];
+        let flats = seed_superflat(&grid, &supergraph, &order, &graph_elevs);
+        // the top tile spills into the bottom tile
+        assert_eq!(
+            BTreeSet::from_iter(flats[&ti00].iter().cloned()),
+            BTreeSet::from([11, 12, 13])
+        );
+        // the bottom tile has a spill point on its bottom-left corner
+        assert_eq!(
+            BTreeSet::from_iter(flats[&ti01].iter().cloned()),
+            BTreeSet::from([14])
+        );
+
+        // spill elevation 0.25
+        let graph_elevs = vec![f64::MIN, 0.25, 0.25];
+        let flats = seed_superflat(&grid, &supergraph, &order, &graph_elevs);
+        assert_eq!(
+            BTreeSet::from_iter(flats[&ti00].iter().cloned()),
+            BTreeSet::from([12, 13])
+        );
+        // bottom-left corner doesn't spill now
+        assert_eq!(
+            BTreeSet::from_iter(flats[&ti01].iter().cloned()),
+            BTreeSet::from([])
+        );
     }
 
     #[test]
     #[rustfmt::skip]
     fn test_re_entrant() {
-        let dem = [[
+        let meta = GridMeta::new(7, 3);
+        let ti00 = TileInfo::new((0,0).into(), meta.clone());
+        let dem00 = [
             1.0,1.0,1.0,1.0,1.0,1.0,1.0,
             1.0,0.2,0.2,1.0,0.2,0.2,1.0,
             1.0,0.2,0.2,1.0,0.2,0.2,1.0,
-        ],[
+        ];
+        //   0    1   2   3   4   5   6
+        //   7    8   9  10  11  12  13
+        //  14   15  16  17  18  19  20
+        let l00 = [
+             0,  0,  0,  0,  1,  1,  1,
+             0,  0,  0,  0,  1,  1,  1,
+             0,  0,  0,  0,  1,  1,  1,
+        ];
+
+        let ti01 = TileInfo::new((0,1).into(), meta.clone());
+        let dem01 = [
             0.5,1.0,1.0,0.2,1.0,1.0,1.0,
             1.0,1.0,1.0,1.0,1.0,1.0,1.0,
             1.0,1.0,1.0,1.0,1.0,1.0,1.0,
-        ]];
-        let filled = [[
-            1.0,1.0,1.0,1.0,1.0,1.0,1.0,
-            1.0,0.5,0.5,1.0,0.5,0.5,1.0,
-            1.0,0.5,0.5,1.0,0.5,0.5,1.0,
-        ],[
-            0.5,1.0,1.0,0.5,1.0,1.0,1.0,
-            1.0,1.0,1.0,1.0,1.0,1.0,1.0,
-            1.0,1.0,1.0,1.0,1.0,1.0,1.0,
-        ]];
+        ];
+
+        let l01 = [
+              0,  1,  1,  1,  2,  2,  2,
+              0,  0,  1,  1,  1,  2,  2,
+              2,  2,  2,  2,  2,  2,  2,
+        ];
         // re-entrant case should be fine, because we have access to labels and
         // only seed edge cells that hug a neighbouring downstream label
 
+        let grid = VecFillGrid::new(
+            GridMeta::new(1, 2),
+            vec![
+                FillData {
+                    tile_info: ti00.clone(),
+                    spill_graph: Vec::new(),
+                    dem_edges: meta.edges(&dem00),
+                    label_edges: meta.edges(&l00),
+                },
+                FillData {
+                    tile_info: ti01.clone(),
+                    spill_graph: Vec::new(),
+                    dem_edges: meta.edges(&dem01),
+                    label_edges: meta.edges(&l01),
+                },
+            ],
+        );
+
+        let supergraph = SuperGraph {
+            spill_graph: vec![
+                HashMap::new(), // special watershed 0
+                // tile 00 has two labels
+                HashMap::from([(3, 0.5),(4, 0.2)]), // 2 and 1 are connected
+                HashMap::from([(4, 0.2)]),
+                // tile 01 has four labels starting from 3
+                HashMap::from([(1, 0.5)]), // 1 and 2 are connected
+                HashMap::from([(3, 0.2),(1, 0.2)]), // 2 => 5
+                HashMap::new(),
+            ],
+            offsets: HashMap::from([
+                (TileCoord { x: 0, y: 0 }, (1, 2)),
+                (TileCoord { x: 0, y: 1 }, (3, 3)),
+            ]),
+        };
+
+        // zig-zag across the edge
+        //      0\  1\
+        // 0->0/  1/  2
+        let order = vec![0, 2, 4, 1, 3, 5];
+
+        // spill elevation 0.5
+        let graph_elevs = vec![f64::MIN, 0.5, 0.5, 0.5, 0.5, 0.5];
+        let flats = seed_superflat(&grid, &supergraph, &order, &graph_elevs);
+        assert_eq!(
+            BTreeSet::from_iter(flats[&ti00].iter().cloned()),
+            BTreeSet::from([15,18])
+        );
     }
 }
