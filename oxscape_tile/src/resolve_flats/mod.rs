@@ -169,17 +169,18 @@ pub fn seed_superflat<T: TotalOrder + Default + Float + Debug>(
                         // the neighbour cell needs to be lower than our raise elevation
                         //
                         // WHY??
-                        if n_elevs[n_edge_idx] > my_raise_elevs[my_labels[edge_idx] as usize] {
-                            println!("skipping {n_edge_idx} for cell {cell_i}");
-                            // if the neighbour cell is higher, it could be that
-                            // we are filling to their height, so in that case
-                            // we also need to check if they are higher than our raise elevation
-                            continue;
-                        }
+                        // if n_elevs[n_edge_idx] >  {
+                        //     println!("skipping {n_edge_idx} for cell {cell_i}");
+                        //     // if the neighbour cell is higher, it could be that
+                        //     // we are filling to their height, so in that case
+                        //     // we also need to check if they are higher than our raise elevation
+                        //     continue;
+                        // }
                         //   - supergraph.spill_graph[my_idx][n] exists, and:
                         //   - order[my_label] > order[n_label]
                         if supergraph.spill_graph()[my_label as usize].contains_key(&n_label)
                             && order[my_label as usize] > order[n_label as usize]
+                            && n_elevs[n_edge_idx] <= my_raise_elevs[my_labels[edge_idx] as usize]
                         {
                             // add this cell's tile index to the seed thing need
                             // to do smartness wrt. finding tile index from bla,
@@ -345,7 +346,7 @@ mod test {
         ];
 
         let l01 = [
-              0,  1,  1,  1,  2,  2,  2,
+              0,  0,  1,  1,  1,  2,  2,
               0,  0,  1,  1,  1,  2,  2,
               2,  2,  2,  2,  2,  2,  2,
         ];
