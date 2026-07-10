@@ -67,7 +67,7 @@ use num_traits::{Float, float::TotalOrder};
 use oxscape_core::{Dir, GridMeta};
 
 use crate::{
-    TLabel, TileInfo,
+    TLabel, TileCoord, TileInfo,
     depfill::{FillGrid, SuperGraph, fill_graph},
 };
 
@@ -94,26 +94,23 @@ pub struct FlatRequiredDataPlzImproveName<T> {
 
 /// find connectivity and edge seeds of all tile-spanning flats
 ///
-/// Currently re-runs catchment-level depression filling in order to get catchment connectivity
+/// A flat is defined as:
+/// - `elevation[i] <= graph_elevs[range][labels[i]]` (it is being filled)
+/// a draining flat adds the requirement that there is a neighbour `n` such that:
+/// - there is a draining edge in the spill graph to a neighbour cell e.g.
+///   - supergraph.spill_graph[my_idx][n] exists, and:
+///   - order[my_label] > order[n_label]
 pub fn seed_superflat<T: TotalOrder + Default + Float + Debug>(
-    graph_grid: impl FillGrid<T>,
+    graph_grid: &impl FillGrid<T>,
+    supergraph: &SuperGraph<T>,
+    order: &[u32],
+    graph_elevs: &[T],
 ) -> FlatGrid {
-    let supergraph = SuperGraph::from_grid(&graph_grid).connect_edges(&graph_grid);
-    let mut graph_elevs = vec![T::default(); supergraph.spill_graph().len()];
-    let order = fill_graph(&supergraph.spill_graph(), &mut graph_elevs);
-
-    // now the algorithm!
-    //
-    // At this point, a flat is defined as:
-    // - elevation[i] <= graph_elevs[range][labels[i]] (it is being filled)
-    // a draining flat adds the requirement that there is a neighbour `n` such that:
-    // - there is a draining edge in the spill graph to a neighbour cell e.g.
-    //   - supergraph.spill_graph[my_idx][n] exists, and:
-    //   - order[my_label] > order[n_label]
+    let offsets = supergraph.offsets();
     // there's just quite some magic involved getting those indices right
-    // so let's copy over the connect_edges code here!
+    // Code is adapted from supergraph.connect_edges
     let mut res = HashMap::with_capacity(graph_grid.n_tiles());
-    for (my_coord, my_offset) in supergraph.offsets() {
+    for (my_coord, my_offset) in offsets {
         let fd = graph_grid.tile(&my_coord);
         let range = my_offset.0 as usize..my_offset.0 as usize + my_offset.1;
 
@@ -122,12 +119,12 @@ pub fn seed_superflat<T: TotalOrder + Default + Float + Debug>(
         let mut seed_indices = Vec::new();
         for dir in Dir::iter() {
             let (my_labels, my_elevs) = graph_grid.edge(my_coord, dir);
-            let my_offset = supergraph.offsets()[my_coord].0;
+            let my_offset = offsets[my_coord].0;
 
             // if we have a neighbour in this direction, check the above
             if let Some(n_coord) = graph_grid.neighbour(my_coord, dir) {
                 let (n_labels, n_elevs) = graph_grid.edge(&n_coord, dir.rev());
-                let n_offset = supergraph.offsets()[&n_coord].0;
+                let n_offset = offsets[&n_coord].0;
 
                 for edge_idx in 0..my_labels.len() {
                     // - elevation[i] <= graph_elevs[range][labels[i]] (it is being filled)
