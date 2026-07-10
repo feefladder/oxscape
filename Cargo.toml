@@ -30,3 +30,6 @@ rand = {version = "0.10.2"}
 rand_chacha = "0.10.0"
 # mainly casting [[usize;8];N] -> [usize;8*N]
 bytemuck = "1.24.0"
+# nice error handling
+exn = "0.3.0"
+derive_more = { version = "2.1.1", features = ["error", "display"] }

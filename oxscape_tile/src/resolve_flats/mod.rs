@@ -60,14 +60,167 @@
 // ah interesting stuff, because tiles completely mess up the edges-drain assumption
 //
 
-/// For each tile, the downstream cells of a flat on the border
-pub type FlatGrid<T> = HashMap<TileInfo, FlatData>;
+use std::collections::HashMap;
+use std::fmt::Debug;
 
-/// in-tile indices of seed cells
+use num_traits::{Float, float::TotalOrder};
+use oxscape_core::{Dir, GridMeta};
+
+use crate::{
+    TLabel, TileInfo,
+    depfill::{FillGrid, SuperGraph, fill_graph},
+};
+
+// Data we want to pass down into tiles
+
+/// For each tile, the downstream cells of a flat on the border
+pub type FlatGrid = HashMap<TileInfo, FlatData>;
+
+/// in-tile coordinates of seed cells
+///
+/// These are used for a region-growing process
 pub type FlatData = Vec<usize>;
+
+// data that is needed to determine the above
+
+/// All per-tile data that is needed by the global problem solver to determine which cells should be seeded
+pub struct FlatRequiredDataPlzImproveName<T> {
+    pub(crate) tile_info: TileInfo,
+    pub(crate) dem_edges: Vec<T>,
+    pub(crate) label_edges: Vec<TLabel>,
+    pub(crate) label_elevs: Vec<T>,
+    pub(crate) label_order: Vec<TLabel>,
+}
+
+/// find connectivity and edge seeds of all tile-spanning flats
+///
+/// Currently re-runs catchment-level depression filling in order to get catchment connectivity
+pub fn seed_superflat<T: TotalOrder + Default + Float + Debug>(
+    graph_grid: impl FillGrid<T>,
+) -> FlatGrid {
+    let supergraph = SuperGraph::from_grid(&graph_grid).connect_edges(&graph_grid);
+    let mut graph_elevs = vec![T::default(); supergraph.spill_graph().len()];
+    let order = fill_graph(&supergraph.spill_graph(), &mut graph_elevs);
+
+    // now the algorithm!
+    //
+    // At this point, a flat is defined as:
+    // - elevation[i] <= graph_elevs[range][labels[i]] (it is being filled)
+    // a draining flat adds the requirement that there is a neighbour `n` such that:
+    // - there is a draining edge in the spill graph to a neighbour cell e.g.
+    //   - supergraph.spill_graph[my_idx][n] exists, and:
+    //   - order[my_label] > order[n_label]
+    // there's just quite some magic involved getting those indices right
+    // so let's copy over the connect_edges code here!
+    let mut res = HashMap::with_capacity(graph_grid.n_tiles());
+    for (my_coord, my_offset) in supergraph.offsets() {
+        let fd = graph_grid.tile(&my_coord);
+        let range = my_offset.0 as usize..my_offset.0 as usize + my_offset.1;
+
+        let my_raise_elevs = &graph_elevs[range];
+
+        let mut seed_indices = Vec::new();
+        for dir in Dir::iter() {
+            let (my_labels, my_elevs) = graph_grid.edge(my_coord, dir);
+            let my_offset = supergraph.offsets()[my_coord].0;
+
+            // if we have a neighbour in this direction, check the above
+            if let Some(n_coord) = graph_grid.neighbour(my_coord, dir) {
+                let (n_labels, n_elevs) = graph_grid.edge(&n_coord, dir.rev());
+                let n_offset = supergraph.offsets()[&n_coord].0;
+
+                for edge_idx in 0..my_labels.len() {
+                    // - elevation[i] <= graph_elevs[range][labels[i]] (it is being filled)
+                    if my_elevs[edge_idx] > my_raise_elevs[my_labels[edge_idx] as usize] {
+                        // this cell won't be raised, so it doesn't need to be filled
+                        continue;
+                    }
+                    // check all neighbours of this cell if they have a draining catchment
+                    // We visit diagonal and opposite neighbours
+                    //
+                    // you may think: But what about
+                    // diagonals to corners? That is a special case in
+                    // which both my_labels and n_labels are a length-1
+                    // array, so it only takes the middle
+                    //
+                    // 0 1 2
+                    //  \|/
+                    // 0 1 2
+                    for n_shift in -1..=1 {
+                        //  0 1 2 ignore the \
+                        // \|/    on this line
+                        //  0 1 2 because -1 isn't usize
+                        let Ok(n_edge_idx) = usize::try_from(edge_idx as isize + n_shift) else {
+                            continue;
+                        };
+
+                        // 0 1 2  ignore the /
+                        //    \|/ on this line
+                        // 0 1 2  because it exceeds the edge
+                        if n_edge_idx >= n_labels.len() {
+                            continue;
+                        }
+
+                        let my_label = my_labels[edge_idx] + my_offset;
+                        let n_label = n_labels[n_edge_idx] + n_offset;
+
+                        // the neighbour cell needs to be lower
+                        if n_elevs[n_edge_idx] > my_elevs[edge_idx] {
+                            continue;
+                        }
+                        //   - supergraph.spill_graph[my_idx][n] exists, and:
+                        //   - order[my_label] > order[n_label]
+                        if supergraph.spill_graph()[my_label as usize].contains_key(&n_label)
+                            && order[my_label as usize] > order[n_label as usize]
+                        {
+                            // add this cell's tile index to the seed thing need
+                            // to do smartness wrt. finding tile index from bla,
+                            // but I think that's alltogether sad and we just
+                            // want to use (x,y)-based indexing at this level?
+                            // Or not... and add some magic function on
+                            // `GridMeta`
+
+                            seed_indices.push(fd.tile_info.meta().edge_idx_to_i(dir, edge_idx))
+                        }
+                    }
+                }
+            } else {
+                // depressions are draining
+                // kind of always adding everything as seed cells?
+                // I think that's fine because the growing algorithm only grows on flats
+                for edge_idx in 0..fd.tile_info.meta().skirt_range(dir).len() {
+                    seed_indices.push(fd.tile_info.meta().edge_idx_to_i(dir, edge_idx))
+                }
+            }
+        }
+
+        res.insert(fd.tile_info.clone(), seed_indices);
+    }
+    res
+}
 
 #[cfg(test)]
 mod test {
+    #[test]
+    fn test_edge() {
+        // so this here is a draining bottom edge. it flows into the catchment
+        // with a global spill elevation of `0.5` Therefore, the middle three cells should be marked as seed cells
+        let edge = vec![1.0, 0.5, 0.25, 0.125, 1.0];
+
+        // for "clarity", labels are global here.
+        let labels = vec![0, 0, 0, 0, 0, 0];
+        // these are needed to show that they all drain to the same catchment
+        let bottom_neighbour_labels = vec![1, 1, 1, 1, 1];
+        // label 0 is later than label 1, so 1->0 (1 receives from 0; 0 drains into 1, flow accumulation is in reverse order);
+        let label_order = vec![1, 0];
+
+        let label_elevs = vec![0.5];
+        let expected = vec![1, 2, 3];
+        // however, if spill elevation was 0.25
+        let label_elevs = vec![0.25];
+        let expected = vec![2, 3];
+    }
+
     #[test]
     #[rustfmt::skip]
     fn test_bad() {
@@ -115,7 +268,7 @@ mod test {
     #[rustfmt::skip]
     fn test_ugly() {
         // example of a hostile dem:
-        // the two
+        // the bottom edge of top tile has unequal levels.
         let dem = [
             [
                 1.0,1.0,1.0,1.0,1.0,

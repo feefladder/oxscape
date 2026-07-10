@@ -116,6 +116,11 @@ impl Dir {
     pub fn iter() -> impl Iterator<Item = Self> {
         (0..8u8).into_iter().map(|v| Self::try_from(v).unwrap())
     }
+
+    // reverse the direction
+    pub fn rev(self) -> Self {
+        GridMeta::rev(self as usize).try_into().unwrap()
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
@@ -398,7 +403,7 @@ impl GridMeta {
     /// If all edges and corners are collected into a single vec, this gives the size
     ///
     /// ```
-    /// use oxscape_core::GridMeta;
+    /// use oxscape_core::{GridMeta, Dir};
     /// let meta = GridMeta::new(3,4);
     /// //  perimeter + 4 corners
     /// assert_eq!(meta.skirt_size(),2*3+2*4+4);
@@ -408,18 +413,94 @@ impl GridMeta {
         self.width * 2 + self.height * 2 + 4
     }
 
+    /// Get the offset of a given direction inside an already-collected edge array
+    ///
+    /// Implementation detail of skirt_range
     fn skirt_idx(&self, dir: u8) -> usize {
+        let height = self.height;
+        let width = self.width;
         match dir {
             0 => 0,
-            1 => self.height(),
-            2 => self.height() + 1,
-            3 => self.height() + 1 + self.width(),
-            4 => self.height() + 1 + self.width() + 1,
-            5 => self.height() + 1 + self.width() + 1 + self.height(),
-            6 => self.height() + 1 + self.width() + 1 + self.height() + 1,
-            7 => self.height() + 1 + self.width() + 1 + self.height() + 1 + self.width(),
-            8 => self.height() + 1 + self.width() + 1 + self.height() + 1 + self.width() + 1,
+            1 => height,
+            2 => height + 1,
+            3 => height + 1 + width,
+            4 => height + 1 + width + 1,
+            5 => height + 1 + width + 1 + height,
+            6 => height + 1 + width + 1 + height + 1,
+            7 => height + 1 + width + 1 + height + 1 + width,
+            8 => height + 1 + width + 1 + height + 1 + width + 1,
             d => panic!("Direction {d} out-of-bounds"),
+        }
+    }
+
+    /// Convert a direction and edge index to `(x,y)` coordinates
+    ///
+    /// This will give the same results as `meta.edge.nth()`:
+    /// ```
+    /// # use oxscape_core::{GridMeta, Dir};
+    /// let grid = [
+    ///    0, 1, 2, 3,
+    ///    4, 5, 6, 7,
+    ///    8, 9,10,11,
+    ///   12,13,14,15,
+    /// ];
+    /// let meta = GridMeta::new(4,4);
+    /// for dir in Dir::iter() {
+    ///     for (edge_idx, v) in meta.edge(&grid, dir).enumerate() {
+    ///         let (x,y) = meta.edge_idx_to_xy(dir, edge_idx);
+    ///         let i = meta.xy_to_i(x,y);
+    ///         assert_eq!(&grid[i], v);
+    ///     }
+    /// }
+    /// ```
+    pub fn edge_idx_to_xy(&self, dir: Dir, edge_idx: usize) -> (usize, usize) {
+        let width = self.width();
+        let height = self.height();
+
+        match dir {
+            Left => (0, edge_idx),
+            TopLeft => (0, 0),
+            Top => (edge_idx, 0),
+            TopRight => (width - 1, 0),
+            Right => (width - 1, edge_idx),
+            BotRight => (width - 1, height - 1),
+            Bot => (edge_idx, height - 1),
+            BotLeft => (0, height - 1),
+        }
+    }
+
+    /// Convert a direction and edge index to flat index
+    ///
+    /// This will give the same results as `meta.edge.nth()`:
+    /// ```
+    /// # use oxscape_core::{GridMeta, Dir};
+    /// let grid = [
+    ///    0, 1, 2, 3,
+    ///    4, 5, 6, 7,
+    ///    8, 9,10,11,
+    ///   12,13,14,15,
+    /// ];
+    /// let meta = GridMeta::new(4,4);
+    /// for dir in Dir::iter() {
+    ///     for (edge_idx, v) in meta.edge(&grid, dir).enumerate() {
+    ///         let i = meta.edge_idx_to_i(dir, edge_idx);
+    ///         assert_eq!(&grid[i], v);
+    ///     }
+    /// }
+    /// ```
+    pub fn edge_idx_to_i(&self, dir: Dir, edge_idx: usize) -> usize {
+        let width = self.width;
+        let size = self.size();
+
+        match dir {
+            Left => edge_idx * width,
+            TopLeft => 0,
+            Top => edge_idx,
+            TopRight => width - 1,
+            Right => width - 1 + edge_idx * width,
+            BotRight => size - 1,
+            Bot => size - width + edge_idx,
+            BotLeft => size - width,
         }
     }
 
@@ -498,6 +579,20 @@ impl GridMeta {
     }
 
     /// Quick-and-dirty printing of arrays
+    ///
+    /// ```
+    /// # use oxscape_core::GridMeta;
+    /// let arr = [0,1,2,3,4,5,6,7,8];
+    /// let meta = GridMeta::new(3,3);
+    /// meta.print(&arr)
+    /// ```
+    /// output
+    /// ```text
+    /// 0 1 2
+    /// 3 4 5
+    /// 6 7 8
+    /// ```
+    /// does not work well for different-sized numbers
     pub fn print<T: Debug>(&self, data: &[T]) {
         println!("[");
         for row in data.chunks(self.width()) {

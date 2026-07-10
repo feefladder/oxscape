@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 oxscape_core = {workspace = true }
+oxscape_flowmets = {workspace = true}
 rayon = {workspace = true }
 
 bytemuck = {workspace = true}

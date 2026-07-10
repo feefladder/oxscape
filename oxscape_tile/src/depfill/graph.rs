@@ -101,6 +101,12 @@ impl<T: Copy + Float + Debug> SuperGraph<T> {
                         fill_grid.edge(&n_coord, GridMeta::rev(dir as usize).try_into().unwrap());
                     for edge_idx in 0..my_labels.len() {
                         // We visit diagonal and opposite neighbours
+                        //
+                        // you may think: But what about
+                        // diagonals to corners? That is a special case in
+                        // which both my_labels and n_labels are a length-1
+                        // array, so it only takes the middle
+                        //
                         // 0 1 2
                         //  \|/
                         // 0 1 2
@@ -112,6 +118,7 @@ impl<T: Copy + Float + Debug> SuperGraph<T> {
                             else {
                                 continue;
                             };
+
                             // 0 1 2  ignore the /
                             //    \|/ on this line
                             // 0 1 2  because it exceeds the edge
